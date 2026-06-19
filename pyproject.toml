@@ -7,11 +7,11 @@ name = "mcp-tui-test"
 version = "0.2.0"
 description = "MCP server for testing Terminal User Interfaces - like Playwright for TUI applications"
 readme = "README.md"
-requires-python = ">=3.10"
+requires-python = ">=3.14"
 dependencies = [
-    "mcp>=1.0.0",
+    "fastmcp>=3.4.2",
     "pexpect>=4.9.0",
-    "pyte>=0.8.0"
+    "pyte>=0.8.2"
 ]
 
 [project.urls]
@@ -19,4 +19,22 @@ Homepage = "https://github.com/GeorgePearse/mcp-tui-test"
 Repository = "https://github.com/GeorgePearse/mcp-tui-test"
 
 [project.scripts]
-mcp-tui-test = "server:mcp.run"
+mcp-tui-test = "mcp_tui_test:mcp.run"
+
+[dependency-groups]
+dev = [
+    "mkdocs>=1.5.0",
+    "mkdocs-cinder>=1.2.0",
+    "mkdocs-git-revision-date-localized-plugin>=1.2.0",
+    "mkdocs-localsearch>=0.8.0",
+    "mkdocs-mermaid2-plugin>=1.1.0",
+    "pytest>=9.1.0",
+    "pytest-asyncio>=1.4",
+]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+markers = [
+    "integration: marks tests that launch real subprocesses (deselect with '-m \"not integration\"')",
+]
