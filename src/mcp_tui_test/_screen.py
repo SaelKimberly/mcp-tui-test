@@ -17,7 +17,9 @@ def strip_ansi(text: str) -> str:
     return ANSI_ESCAPE.sub("", text)
 
 
-def drain_buffer(process, screen, stream, max_passes: int = 3, max_reads: int = 100) -> None:
+def drain_buffer(
+    process, screen, stream, max_passes: int = 3, max_reads: int = 100
+) -> None:
     """Drain all available process output into a pyte screen buffer.
 
     Uses multiple short-drain passes with sleeps between to catch
@@ -72,7 +74,10 @@ def screen_text_changed(a: str, b: str, threshold: float = 0.05) -> bool:
 
 
 def poll_until_stable(
-    session, timeout: float = 10, interval: float = 0.1, consecutive: int = 3,
+    session,
+    timeout: float = 10,
+    interval: float = 0.1,
+    consecutive: int = 3,
 ) -> str:
     """Poll screen until it remains stable for `consecutive` samples.
 
@@ -103,7 +108,10 @@ def poll_until_stable(
 
 
 def poll_until_changed(
-    session, reference: str, timeout: float = 10, interval: float = 0.1,
+    session,
+    reference: str,
+    timeout: float = 10,
+    interval: float = 0.1,
 ) -> str:
     """Poll screen until content differs from `reference`.
 

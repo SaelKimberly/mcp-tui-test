@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""Probe script: diagnose send_keys / expect_text behavior with ratatui apps.
-"""
+"""Probe script: diagnose send_keys / expect_text behavior with ratatui apps."""
 
 import asyncio
 import os
@@ -54,9 +53,14 @@ async def cleanup():
 async def step1_baseline():
     """Step 1.1: Basic launch and initial screen capture."""
     await cleanup()
-    r = await tool("launch_tui",
-                   command=RATATUI_APP, session_id="probe", timeout=15,
-                   dimensions="120x40", mode="buffer")
+    r = await tool(
+        "launch_tui",
+        command=RATATUI_APP,
+        session_id="probe",
+        timeout=15,
+        dimensions="120x40",
+        mode="buffer",
+    )
     print(f"  Launch: {r}")
     await asyncio.sleep(1.5)
 
@@ -71,8 +75,10 @@ async def step1_baseline():
             print(f"  Line {i}: error - {e}")
 
     for label in ["Main", "Tabs", "Counter"]:
-        ok = await run_test(f"assert_contains('{label}')",
-                            tool("assert_contains", text=label, session_id="probe"))
+        ok = await run_test(
+            f"assert_contains('{label}')",
+            tool("assert_contains", text=label, session_id="probe"),
+        )
         if not ok:
             print(f"  → '{label}' NOT found on screen")
 
@@ -93,14 +99,21 @@ async def step2_send_q():
 async def step3_tab_switch():
     """Step 1.3: Send Tab to switch tabs, then expect_text."""
     await cleanup()
-    await tool("launch_tui",
-               command=RATATUI_APP, session_id="probe", timeout=15,
-               dimensions="120x40", mode="buffer")
+    await tool(
+        "launch_tui",
+        command=RATATUI_APP,
+        session_id="probe",
+        timeout=15,
+        dimensions="120x40",
+        mode="buffer",
+    )
     print("  Launch OK")
     await asyncio.sleep(1.5)
 
-    ok = await run_test("expect_text Main",
-                        tool("expect_text", pattern="Main", session_id="probe", timeout=5))
+    ok = await run_test(
+        "expect_text Main",
+        tool("expect_text", pattern="Main", session_id="probe", timeout=5),
+    )
     if not ok:
         print("  → Cannot proceed: initial text not found")
         await cleanup()
@@ -110,15 +123,19 @@ async def step3_tab_switch():
     await tool("send_keys", keys="\t", session_id="probe", delay=0.5)
     print("  Sent Tab (\\t)")
 
-    ok = await run_test("expect_text Settings after Tab",
-                        tool("expect_text", pattern="Settings", session_id="probe", timeout=5))
+    ok = await run_test(
+        "expect_text Settings after Tab",
+        tool("expect_text", pattern="Settings", session_id="probe", timeout=5),
+    )
 
     if not ok:
         # Try \\x09 literal escape
         print("  → \\t failed, trying \\x09")
         await tool("send_keys", keys="\\x09", session_id="probe", delay=0.5)
-        ok = await run_test("expect_text Settings after \\x09",
-                            tool("expect_text", pattern="Settings", session_id="probe", timeout=5))
+        ok = await run_test(
+            "expect_text Settings after \\x09",
+            tool("expect_text", pattern="Settings", session_id="probe", timeout=5),
+        )
 
     screen = await tool("capture_screen", session_id="probe")
     print(f"  Screen:\n{screen}")
@@ -128,9 +145,14 @@ async def step3_tab_switch():
 async def step4_enter_key():
     """Step 1.4: Test Enter key (\\n vs \\r)."""
     await cleanup()
-    await tool("launch_tui",
-               command=RATATUI_APP, session_id="probe", timeout=15,
-               dimensions="120x40", mode="buffer")
+    await tool(
+        "launch_tui",
+        command=RATATUI_APP,
+        session_id="probe",
+        timeout=15,
+        dimensions="120x40",
+        mode="buffer",
+    )
     print("  Launch OK")
     await asyncio.sleep(1.5)
 
@@ -142,17 +164,24 @@ async def step4_enter_key():
     screen = await tool("capture_screen", session_id="probe")
     print(f"  Screen after 'a\\r':\n{screen}")
 
-    ok = await run_test("Counter: 1 after 'a\\r'",
-                        tool("assert_contains", text="Counter: 1", session_id="probe"))
+    ok = await run_test(
+        "Counter: 1 after 'a\\r'",
+        tool("assert_contains", text="Counter: 1", session_id="probe"),
+    )
 
     # Send q to quit
     await tool("send_keys", keys="q", session_id="probe", delay=0.5)
     await cleanup()
 
     # Now test with \n
-    await tool("launch_tui",
-               command=RATATUI_APP, session_id="probe", timeout=15,
-               dimensions="120x40", mode="buffer")
+    await tool(
+        "launch_tui",
+        command=RATATUI_APP,
+        session_id="probe",
+        timeout=15,
+        dimensions="120x40",
+        mode="buffer",
+    )
     print("  Launch OK (for \\n test)")
     await asyncio.sleep(1.5)
 
@@ -163,8 +192,10 @@ async def step4_enter_key():
     screen = await tool("capture_screen", session_id="probe")
     print(f"  Screen after 'a\\n':\n{screen}")
 
-    ok = await run_test("Counter: 1 after 'a\\n'",
-                        tool("assert_contains", text="Counter: 1", session_id="probe"))
+    ok = await run_test(
+        "Counter: 1 after 'a\\n'",
+        tool("assert_contains", text="Counter: 1", session_id="probe"),
+    )
     if not ok:
         print("  → \\n did NOT increment counter (crossterm expects \\r)")
 
@@ -175,17 +206,24 @@ async def step4_enter_key():
 async def step5_polling():
     """Step 1.5: Test expect_text buffer-mode polling with short delay."""
     await cleanup()
-    await tool("launch_tui",
-               command=RATATUI_APP, session_id="probe", timeout=15,
-               dimensions="120x40", mode="buffer")
+    await tool(
+        "launch_tui",
+        command=RATATUI_APP,
+        session_id="probe",
+        timeout=15,
+        dimensions="120x40",
+        mode="buffer",
+    )
     print("  Launch OK")
     await asyncio.sleep(1.5)
 
     await tool("send_keys", keys="a\r", session_id="probe", delay=0.1)
     print("  Sent 'a\\r' with delay=0.1")
 
-    await run_test("Counter: 1 after 'a\\r'",
-                        tool("expect_text", pattern="Counter: 1", session_id="probe", timeout=5))
+    await run_test(
+        "Counter: 1 after 'a\\r'",
+        tool("expect_text", pattern="Counter: 1", session_id="probe", timeout=5),
+    )
 
     screen = await tool("capture_screen", session_id="probe")
     print(f"  Screen:\n{screen}")
@@ -197,9 +235,14 @@ async def step5_polling():
 async def step6_pyte_tracking():
     """Step 1.6: Determine if pyte tracks the screen correctly."""
     await cleanup()
-    await tool("launch_tui",
-               command=RATATUI_APP, session_id="probe", timeout=15,
-               dimensions="120x40", mode="buffer")
+    await tool(
+        "launch_tui",
+        command=RATATUI_APP,
+        session_id="probe",
+        timeout=15,
+        dimensions="120x40",
+        mode="buffer",
+    )
     print("  Launch OK")
     await asyncio.sleep(1.5)
 
@@ -235,9 +278,14 @@ async def step6_pyte_tracking():
     cursor = await tool("get_cursor_position", session_id="probe")
     print(f"  {cursor}")
 
-    region = await tool("get_screen_region",
-                        session_id="probe", row_start=0, row_end=10,
-                        col_start=0, col_end=80)
+    region = await tool(
+        "get_screen_region",
+        session_id="probe",
+        row_start=0,
+        row_end=10,
+        col_start=0,
+        col_end=80,
+    )
     print(f"  Region 0-10×0-80:\n{region}")
 
     await tool("send_keys", keys="q", session_id="probe", delay=0.5)

@@ -2,7 +2,7 @@
 
 ## Project Overview
 
-`mcp-tui-test` is a Python MCP (Model Context Protocol) server for testing Terminal User Interface applications programmatically. "Like Playwright, but for TUIs." It launches a TUI app in a subprocess, feeds input, captures screen output — all via 16 MCP tools callable by AI agents. Supports two modes: **stream** (pexpect, for CLI tools) and **buffer** (pyte terminal emulation, for full TUIs with position-aware assertions).
+`mcp-tui-test` is a Python MCP (Model Context Protocol) server for testing Terminal User Interface applications programmatically. "Like Playwright, but for TUIs." It launches a TUI app in a subprocess, feeds input, captures screen output — all via 17 MCP tools callable by AI agents. Supports two modes: **stream** (pexpect, for CLI tools) and **buffer** (pyte terminal emulation, for full TUIs with position-aware assertions).
 
 Version 0.4.0. MIT license. Two-module core (~810 combined lines).
 
@@ -31,6 +31,7 @@ Agent → FastMCP → @mcp.tool → require_session() → ScreenSession → Scre
 - `ScreenSession` — wraps pexpect + pyte; methods: `send()`, `capture()`, `_update_buffer()`, `close()`; fields: `launch_time`, `command`, `_last_preview`
 - `sessions: dict[str, ScreenSession]` — module-level mutable state
 - `require_session(id)` — lookup or `ToolError`
+- `SPECIAL_KEYS: dict[str, str]` — maps key names (e.g. "up", "f1") to terminal escape sequences
 
 **Helper module (`_screen.py`):**
 
@@ -48,17 +49,17 @@ Agent → FastMCP → @mcp.tool → require_session() → ScreenSession → Scre
 ./
 ├── src/mcp_tui_test/       # Package root
 │   ├── _screen.py          # Screen polling/detection helpers (extracted from _server.py)
-│   ├── _server.py          # Dataclasses, ScreenSession, 16 MCP tools
+│   ├── _server.py          # Dataclasses, ScreenSession, 17 MCP tools
 │   ├── __init__.py          # Exports `mcp` FastMCP instance
 │   └── __main__.py          # `python -m mcp_tui_test`
 ├── tests/
 │   ├── conftest.py          # DummyProcess, session/buffer_session fixtures
-│   ├── unit/                # 45 tests, no subprocesses
+│   ├── unit/                # 46 tests, no subprocesses
 │   │   ├── test_screen.py
 │   │   ├── test_screen_session.py
 │   │   ├── test_capture.py
 │   │   └── test_errors.py
-│   └── integration/         # 30 tests, real subprocess via mcp.call_tool()
+│   └── integration/         # 33 tests, real subprocess via mcp.call_tool()
 │       └── test_tools.py
 ├── examples/
 │   ├── example_tui_app.py   # Simple print/input menu (not a real TUI)
@@ -67,7 +68,7 @@ Agent → FastMCP → @mcp.tool → require_session() → ScreenSession → Scre
 │   ├── index.md             # Doc page (lags code)
 │   ├── examples.md          # Doc page (lags code)
 │   └── stylesheets/
-└── EXAMPLES.md              # 12 worked examples
+└── EXAMPLES.md              # 13 worked examples
 ```
 
 ## Development Commands
@@ -83,7 +84,7 @@ uv run mcp-tui-test               # Console script entry point
 uv run python -m mcp_tui_test     # Alternative
 
 # Tests
-uv run pytest -m "not integration" -v    # Unit tests only (fast, 45 tests)
+uv run pytest -m "not integration" -v    # Unit tests only (fast, 46 tests)
 uv run pytest -v                         # Full suite (unit + integration, ~37s)
 uv run pytest tests/unit/test_screen.py -v
 uv run pytest tests/unit/test_screen_session.py -v
@@ -104,7 +105,7 @@ asyncio.run(s())
 No linting, formatting, or type-checking commands configured (no ruff/black/mypy in dev deps).
 
 ### Module structure
-- Two-module core: `_server.py` contains dataclasses, `ScreenSession`, sessions dict, and 16 `@mcp.tool` functions; `_screen.py` contains extracted helper functions (ANSI stripping, drain_buffer, polling logic)
+- Two-module core: `_server.py` contains dataclasses, `ScreenSession`, sessions dict, and 17 `@mcp.tool` functions; `_screen.py` contains extracted helper functions (ANSI stripping, drain_buffer, polling logic)
 - Tool functions are module-level, decorated with `@mcp.tool`, take plain params (not dependency-injected)
 - No classes or tool registrations outside `_server.py`
 
@@ -143,7 +144,7 @@ No linting, formatting, or type-checking commands configured (no ruff/black/mypy
 | File | Role |
 |---|---|
 | `src/mcp_tui_test/_screen.py` | Extracted helpers: ANSI stripping, drain_buffer, screen polling |
-| `src/mcp_tui_test/_server.py` | Dataclasses, ScreenSession, 16 tools (~700 lines) |
+| `src/mcp_tui_test/_server.py` | Dataclasses, ScreenSession, 17 tools (~785 lines) |
 | `src/mcp_tui_test/__init__.py` | Exports `mcp` |
 | `src/mcp_tui_test/__main__.py` | Entry point: `mcp.run()` |
 | `pyproject.toml` | Build config, deps, scripts, pytest settings |
@@ -151,7 +152,7 @@ No linting, formatting, or type-checking commands configured (no ruff/black/mypy
 | `tests/conftest.py` | DummyProcess + fixtures |
 | `tests/unit/test_screen.py` | Unit tests for _screen.py helpers |
 | `tests/unit/test_screen_session.py` | Unit tests for ScreenSession |
-| `tests/integration/test_tools.py` | Integration tests for all 16 tools |
+| `tests/integration/test_tools.py` | Integration tests for all 17 tools |
 | `examples/example_tui_app.py` | Simple print/input menu app for testing |
 | `examples/test_xray_tui.py` | Probe script for ratatui app diagnosis |
 | `docs/index.md` | MkDocs version of README |
@@ -176,14 +177,14 @@ No linting, formatting, or type-checking commands configured (no ruff/black/mypy
 - Custom marker: `integration` — deselect with `-m "not integration"`
 
 ### Test boundaries
-- **Unit tests** (no marker): 4 files, 45 tests. Use `DummyProcess` to mock pexpect. Cover ScreenSession init/send/capture/close, ScreenModel/CursorPosition immutability, require_session error handling, `_screen.py` helper functions (screen_text_changed, poll_until_stable, poll_until_changed, drain_buffer). Fast (~2s).
-- **Integration tests** (`@pytest.mark.integration`): 1 file, 30 tests. Launch real subprocess via `mcp.call_tool()`. Cover all 16 tools across launch/expect/send/assert/buffer-mode/Ctrl-key/ratatui/new-tool scenarios. Slower (~36s).
+- **Unit tests** (no marker): 4 files, 46 tests. Use `DummyProcess` to mock pexpect. Cover ScreenSession init/send/capture/close, ScreenModel/CursorPosition immutability, require_session error handling, `_screen.py` helper functions (screen_text_changed, poll_until_stable, poll_until_changed, drain_buffer). Fast (~2s).
+- **Integration tests** (`@pytest.mark.integration`): 1 file, 33 tests. Launch real subprocess via `mcp.call_tool()`. Cover all 17 tools across launch/expect/send/assert/buffer-mode/Ctrl-key/special-keys/ratatui/new-tool scenarios. Slower (~36s).
 
 ### What's tested vs gaps
 - ✅ ScreenSession init, send, capture (stream+buffer), close
 - ✅ ScreenModel/CursorPosition immutability, text property
 - ✅ require_session lookup/error
-- ✅ All 16 MCP tools at integration level (smoke)
+- ✅ All 17 MCP tools at integration level (smoke)
 - ✅ expect_text regex in buffer mode
 - ✅ `_update_buffer`/`drain_buffer` multi-pass drain with ratatui app (integration)
 - ✅ screen_text_changed (threshold diff, edge cases)
@@ -191,6 +192,7 @@ No linting, formatting, or type-checking commands configured (no ruff/black/mypy
 - ✅ auto session ID generation
 - ✅ inter_key_delay parameter (send_keys char-by-char)
 - ✅ get_char integration test
+- ✅ `send_special_keys` declarative key names (arrows, f-keys, etc.)
 - ❌ Multi-session scenarios
 - ❌ `preserve_format` parameter paths (added recently)
 - ❌ Dimensions parse error (added recently)

@@ -158,6 +158,36 @@ _session_counter = itertools.count(1)
 sessions: dict[str, ScreenSession] = {}
 
 
+SPECIAL_KEYS: dict[str, str] = {
+    "up": "\x1b[A",
+    "down": "\x1b[B",
+    "right": "\x1b[C",
+    "left": "\x1b[D",
+    "home": "\x1b[H",
+    "end": "\x1b[F",
+    "page_up": "\x1b[5~",
+    "page_down": "\x1b[6~",
+    "insert": "\x1b[2~",
+    "delete": "\x1b[3~",
+    "backspace": "\x7f",
+    "escape": "\x1b",
+    "enter": "\r",
+    "tab": "\t",
+    "f1": "\x1bOP",
+    "f2": "\x1bOQ",
+    "f3": "\x1bOR",
+    "f4": "\x1bOS",
+    "f5": "\x1b[15~",
+    "f6": "\x1b[17~",
+    "f7": "\x1b[18~",
+    "f8": "\x1b[19~",
+    "f9": "\x1b[20~",
+    "f10": "\x1b[21~",
+    "f11": "\x1b[23~",
+    "f12": "\x1b[24~",
+}
+
+
 @mcp.tool
 def launch_tui(
     command: str,
@@ -731,6 +761,60 @@ def send_ctrl(key: str, session_id: str = "default") -> str:
     session.send(ctrl_char)
 
     return f"✓ Sent Ctrl+{key.upper()} to session {session_id}"
+
+
+@mcp.tool
+def send_special_keys(
+    keys: list[str],
+    session_id: str = "default",
+    delay: float = 0.3,
+) -> str:
+    """Send special keys by name (arrows, function keys, etc.) to the TUI application.
+
+    Provides a declarative way to send keys that would otherwise require
+    raw escape sequences. Each element in `keys` is a named special key
+    mapped to its terminal escape sequence automatically.
+
+    Supported key names:
+    Arrow keys: up, down, left, right
+    Navigation: home, end, page_up, page_down
+    Editing: backspace, delete, insert
+    Control: enter, tab, escape
+    Function keys: f1, f2, ..., f12
+
+    For regular text and simple control characters, use send_keys instead.
+    For Ctrl+letter combinations, use send_ctrl.
+
+    Examples:
+      send_special_keys(keys=["down", "down", "enter"])
+      send_special_keys(keys=["escape", "q"])
+      send_special_keys(keys=["f5"])  # Refresh in many TUIs
+
+    Args:
+        keys: List of special key names to send in sequence.
+        session_id: Session identifier (default: "default")
+        delay: Seconds to wait after sending for the app to process (default: 0.3, minimum 0.1)
+
+    Returns:
+        Confirmation message
+
+    Raises:
+        ToolError: If any key name is not recognized, or session not found.
+    """
+    delay = max(delay, 0.1)
+    session = require_session(session_id)
+    unknown = [k for k in keys if k not in SPECIAL_KEYS]
+    if unknown:
+        valid = ", ".join(sorted(SPECIAL_KEYS))
+        raise ToolError(f"Unknown special key(s): {', '.join(unknown)}. Valid keys: {valid}")
+
+    encoded = "".join(SPECIAL_KEYS[k] for k in keys)
+    session.process.send(encoded)
+    time.sleep(delay)
+    if session.mode == "buffer":
+        session._update_buffer()
+
+    return f"✓ Sent {len(keys)} special key(s) to session {session_id}"
 
 
 if __name__ == "__main__":

@@ -65,7 +65,9 @@ class TestExpectText:
 
     async def test_timeout(self, launched_session):
         with pytest.raises(ToolError, match="not found after"):
-            await mcp.call_tool("expect_text", {"pattern": "ZZZZ_NOT_THERE", "timeout": 1})
+            await mcp.call_tool(
+                "expect_text", {"pattern": "ZZZZ_NOT_THERE", "timeout": 1}
+            )
 
 
 @pytest.mark.integration
@@ -115,7 +117,9 @@ class TestBufferMode:
                 pass
 
     async def test_assert_at_position(self, buffer_launched):
-        r = await mcp.call_tool("assert_at_position", {"text": "Welcome", "row": 1, "col": 2})
+        r = await mcp.call_tool(
+            "assert_at_position", {"text": "Welcome", "row": 1, "col": 2}
+        )
         assert "✓" in str(r)
 
     async def test_get_cursor_position(self, buffer_launched):
@@ -149,13 +153,41 @@ class TestSendCtrl:
 
 @pytest.mark.integration
 @pytest.mark.asyncio
+class TestSendSpecialKeys:
+    """Integration tests for send_special_keys tool."""
+
+    async def test_send_special_keys_basic(self, launched_session):
+        r = await mcp.call_tool("send_special_keys", {"keys": ["escape"]})
+        assert "✓" in str(r)
+
+    async def test_send_special_keys_buffer_mode(self):
+        await mcp.call_tool("launch_tui", {"command": EXAMPLE_APP, "mode": "buffer"})
+        try:
+            await mcp.call_tool("expect_text", {"pattern": "Welcome"})
+            r = await mcp.call_tool("send_special_keys", {"keys": ["down", "enter"]})
+            assert "✓" in str(r)
+        finally:
+            try:
+                await mcp.call_tool("close_session", {})
+            except Exception:
+                pass
+
+    async def test_send_special_keys_unknown_key(self, launched_session):
+        with pytest.raises(ToolError) as exc:
+            await mcp.call_tool("send_special_keys", {"keys": ["notakey"]})
+        assert "Unknown special key" in str(exc.value)
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
 class TestNewTools:
     """Integration tests for new tools (wait_for_stable, wait_for_change, get_session_info, etc.)"""
 
     @pytest.fixture
     async def launched(self):
         await mcp.call_tool(
-            "launch_tui", {"command": EXAMPLE_APP, "mode": "buffer"},
+            "launch_tui",
+            {"command": EXAMPLE_APP, "mode": "buffer"},
         )
         try:
             await mcp.call_tool("expect_text", {"pattern": "Welcome"})
@@ -168,7 +200,8 @@ class TestNewTools:
 
     async def test_wait_for_stable(self, launched):
         r = await mcp.call_tool(
-            "wait_for_stable", {"interval": 0.05, "consecutive": 2, "timeout": 5},
+            "wait_for_stable",
+            {"interval": 0.05, "consecutive": 2, "timeout": 5},
         )
         assert "Screen stabilized" in str(r)
         assert "Welcome" in str(r)
@@ -178,7 +211,8 @@ class TestNewTools:
         ref = str(r)
         await mcp.call_tool("send_keys", {"keys": "1\n"})
         r = await mcp.call_tool(
-            "wait_for_change", {"reference": ref, "timeout": 5},
+            "wait_for_change",
+            {"reference": ref, "timeout": 5},
         )
         assert "Screen changed" in str(r)
         assert "Hello, TUI Tester!" in str(r)
@@ -193,13 +227,15 @@ class TestNewTools:
 
     async def test_send_keys_inter_key_delay(self, launched):
         r = await mcp.call_tool(
-            "send_keys", {"keys": "1\n", "inter_key_delay": 0.05},
+            "send_keys",
+            {"keys": "1\n", "inter_key_delay": 0.05},
         )
         assert "✓" in str(r)
 
     async def test_auto_session_id(self):
         r = await mcp.call_tool(
-            "launch_tui", {"command": EXAMPLE_APP, "session_id": ""},
+            "launch_tui",
+            {"command": EXAMPLE_APP, "session_id": ""},
         )
         text = str(r)
         assert "session_" in text
@@ -225,12 +261,15 @@ class TestRatatuiApp:
 
     @pytest.fixture
     async def ratatui_session(self):
-        await mcp.call_tool("launch_tui", {
-            "command": self.RATATUI_APP,
-            "mode": "buffer",
-            "dimensions": "120x40",
-            "timeout": 15,
-        })
+        await mcp.call_tool(
+            "launch_tui",
+            {
+                "command": self.RATATUI_APP,
+                "mode": "buffer",
+                "dimensions": "120x40",
+                "timeout": 15,
+            },
+        )
         try:
             await mcp.call_tool("expect_text", {"pattern": "Main", "timeout": 5})
             yield

@@ -89,9 +89,7 @@ expect_text(pattern="Main Menu", session_id="menu")
 # Verify title is at the top
 assert_at_position(text="Main Menu", row=0, col=0, session_id="menu")
 
-# Navigate menu with arrow keys
-send_keys(keys="\x1b[B", session_id="menu")  # Down arrow
-send_keys(keys="\x1b[B", session_id="menu")  # Down arrow
+send_special_keys(keys=["down", "down"], session_id="menu")  # Navigate menu
 
 # Check cursor moved
 cursor_pos = get_cursor_position(session_id="menu")
@@ -111,7 +109,7 @@ launch_tui(
     command='dialog --msgbox "Hello World" 10 30',
     mode="buffer",
     session_id="dialog",
-    dimensions="80x24"
+    dimensions="80x24",
 )
 
 # Wait for dialog to appear
@@ -131,12 +129,7 @@ close_session(session_id="dialog")
 
 ```python
 # Launch htop in buffer mode
-launch_tui(
-    command="htop",
-    mode="buffer",
-    session_id="htop",
-    dimensions="120x40"
-)
+launch_tui(command="htop", mode="buffer", session_id="htop", dimensions="120x40")
 
 # Wait for it to render
 expect_text(pattern="CPU", session_id="htop", timeout=5)
@@ -164,10 +157,7 @@ close_session(session_id="htop")
 ```python
 # Launch application with structured layout
 launch_tui(
-    command="python dashboard.py",
-    mode="buffer",
-    session_id="dash",
-    dimensions="100x30"
+    command="python dashboard.py", mode="buffer", session_id="dash", dimensions="100x30"
 )
 
 # Wait for dashboard to load
@@ -181,11 +171,7 @@ assert_at_position(text="Status: OK", row=29, col=80, session_id="dash")
 
 # Extract sidebar (first 20 columns)
 sidebar = get_screen_region(
-    row_start=1,
-    row_end=28,
-    col_start=0,
-    col_end=20,
-    session_id="dash"
+    row_start=1, row_end=28, col_start=0, col_end=20, session_id="dash"
 )
 
 # Sidebar should contain menu items
@@ -203,10 +189,7 @@ close_session(session_id="dash")
 ```python
 # Launch text editor
 launch_tui(
-    command="nano test.txt",
-    mode="buffer",
-    session_id="nano",
-    dimensions="80x24"
+    command="nano test.txt", mode="buffer", session_id="nano", dimensions="80x24"
 )
 
 # Wait for nano to start
@@ -243,12 +226,7 @@ Running multiple TUI apps simultaneously:
 launch_tui(command="python cli_tool.py", session_id="app1")
 
 # Launch second app in buffer mode
-launch_tui(
-    command="htop",
-    session_id="app2",
-    mode="buffer",
-    dimensions="120x40"
-)
+launch_tui(command="htop", session_id="app2", mode="buffer", dimensions="120x40")
 
 # List active sessions
 list_sessions()
@@ -271,22 +249,14 @@ close_session(session_id="app2")
 
 ```python
 # Launch application
-launch_tui(
-    command="python status_app.py",
-    mode="buffer",
-    session_id="status"
-)
+launch_tui(command="python status_app.py", mode="buffer", session_id="status")
 
 # Wait for initial render
 expect_text(pattern="System Status", session_id="status")
 
 # Capture initial state of status region
 initial_status = get_screen_region(
-    row_start=10,
-    row_end=15,
-    col_start=0,
-    col_end=50,
-    session_id="status"
+    row_start=10, row_end=15, col_start=0, col_end=50, session_id="status"
 )
 
 # Trigger a change
@@ -297,11 +267,7 @@ send_keys(keys="", session_id="status", delay=1.0)
 
 # Capture updated state
 updated_status = get_screen_region(
-    row_start=10,
-    row_end=15,
-    col_start=0,
-    col_end=50,
-    session_id="status"
+    row_start=10, row_end=15, col_start=0, col_end=50, session_id="status"
 )
 
 # Compare regions
@@ -315,11 +281,7 @@ close_session(session_id="status")
 
 ```python
 # Launch app with progress bar
-launch_tui(
-    command="python download_simulator.py",
-    mode="buffer",
-    session_id="progress"
-)
+launch_tui(command="python download_simulator.py", mode="buffer", session_id="progress")
 
 # Wait for progress bar to appear
 expect_text(pattern="Downloading", session_id="progress")
@@ -465,4 +427,28 @@ send_keys(keys="value3\n")
 # Verify completion
 assert_contains(text="Complete")
 close_session()
+```
+
+### Example 13: Declarative Special Key Navigation (Buffer Mode)
+
+```python
+# Launch in buffer mode
+launch_tui(command="python menu_app.py", mode="buffer", session_id="nav")
+
+# Wait for menu to render
+expect_text(pattern="Main Menu", session_id="nav")
+
+# Navigate with declarative special key names
+send_special_keys(keys=["down", "enter"], session_id="nav")
+
+# Verify the selection changed
+expect_text(pattern="Option 1", session_id="nav")
+
+# Navigate back up and cancel
+send_special_keys(keys=["up", "escape"], session_id="nav")
+
+# Verify we're back at the main menu
+assert_contains(text="Main Menu", session_id="nav")
+
+close_session(session_id="nav")
 ```

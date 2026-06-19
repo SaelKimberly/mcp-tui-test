@@ -42,7 +42,9 @@ class TestScreenModel:
         sm = ScreenModel(
             lines=("hello", "world"),
             cursor=CursorPosition(row=0, col=0),
-            width=80, height=24, mode="buffer",
+            width=80,
+            height=24,
+            mode="buffer",
         )
         assert sm.text == "hello\nworld"
 
@@ -50,7 +52,9 @@ class TestScreenModel:
         sm = ScreenModel(
             lines=("",),
             cursor=CursorPosition(row=-1, col=-1),
-            width=80, height=24, mode="stream",
+            width=80,
+            height=24,
+            mode="stream",
         )
         assert sm.text == ""
 
@@ -58,7 +62,9 @@ class TestScreenModel:
         sm = ScreenModel(
             lines=("a",),
             cursor=CursorPosition(row=0, col=0),
-            width=80, height=24, mode="buffer",
+            width=80,
+            height=24,
+            mode="buffer",
         )
         with pytest.raises(AttributeError):
             sm.lines = ("b",)
@@ -67,7 +73,9 @@ class TestScreenModel:
         sm = ScreenModel(
             lines=("a",),
             cursor=CursorPosition(row=0, col=0),
-            width=80, height=24, mode="buffer",
+            width=80,
+            height=24,
+            mode="buffer",
         )
         with pytest.raises(AttributeError):
             sm.__dict__
@@ -78,7 +86,9 @@ class TestScreenModel:
         sm = ScreenModel(
             lines=("a",),
             cursor=cp,
-            width=80, height=24, mode="buffer",
+            width=80,
+            height=24,
+            mode="buffer",
         )
         with pytest.raises(AttributeError):
             sm.cursor.row = 99

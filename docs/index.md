@@ -146,6 +146,26 @@ Send a Ctrl+Key combination to the TUI application.
 send_ctrl(key="c", session_id="test1")
 ```
 
+### `send_special_keys`
+Send special keys by name (arrows, function keys, etc.) to the TUI application.
+
+**Parameters:**
+- `keys` (required): List of special key names (e.g., `["down", "enter"]`)
+- `session_id` (optional): Session identifier (default: "default")
+- `delay` (optional): Seconds to wait after sending (default: 0.3)
+
+**Supported key names:**
+Arrow keys: `up`, `down`, `left`, `right`
+Navigation: `home`, `end`, `page_up`, `page_down`
+Editing: `backspace`, `delete`, `insert`
+Control: `enter`, `tab`, `escape`
+Function keys: `f1` through `f12`
+
+**Example:**
+```python
+send_special_keys(keys=["down", "down", "enter"], session_id="test1")
+```
+
 ### `capture_screen`
 Capture the current screen output of a TUI application.
 

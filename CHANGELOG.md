@@ -18,6 +18,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   binary with buffer mode, tab switching, and Enter key handling
 - **Probe script**: `examples/test_xray_tui.py` documents the diagnostic workflow used
   to validate the fixes
+- **`send_special_keys` tool**: Send special keys by name (up, down, enter, escape, f1-f12, etc.) without raw escape sequences. Accepts a list of key names and maps each to the corresponding terminal control sequence.
 
 ### Changed
 - **`send_keys` delay enforcement**: Minimum delay of 0.1s is now enforced with

@@ -6,21 +6,27 @@ from tests.conftest import DummyProcess
 
 class TestInit:
     def test_stream_mode(self, dummy_process):
-        session = ScreenSession(process=dummy_process, dimensions=(80, 24), mode="stream")
+        session = ScreenSession(
+            process=dummy_process, dimensions=(80, 24), mode="stream"
+        )
         assert session.mode == "stream"
         assert session.dimensions == (80, 24)
         assert session.process is dummy_process
         assert not hasattr(session, "screen")
 
     def test_buffer_mode(self, dummy_process):
-        session = ScreenSession(process=dummy_process, dimensions=(80, 24), mode="buffer")
+        session = ScreenSession(
+            process=dummy_process, dimensions=(80, 24), mode="buffer"
+        )
         assert session.mode == "buffer"
         assert hasattr(session, "screen")
         assert hasattr(session, "stream")
 
     def test_launch_time_set(self, dummy_process):
         session = ScreenSession(
-            process=dummy_process, dimensions=(80, 24), mode="stream",
+            process=dummy_process,
+            dimensions=(80, 24),
+            mode="stream",
         )
         assert session.launch_time > 0
         assert isinstance(session.launch_time, float)
@@ -98,3 +104,17 @@ class TestClose:
         session.close()
         session.close()  # Should not raise
         assert session.process._closed is True
+
+
+class TestSpecialKeysMapping:
+    """Verify SPECIAL_KEYS dictionary integrity."""
+
+    def test_all_special_keys_have_valid_sequences(self):
+        from mcp_tui_test._server import SPECIAL_KEYS
+
+        for name, seq in SPECIAL_KEYS.items():
+            assert isinstance(name, str) and name
+            assert isinstance(seq, str) and seq
+            # Every sequence should start with \x1b (escape) unless it's a single control char
+            if name not in ("enter", "tab", "backspace"):
+                assert seq.startswith("\x1b"), f"{name}: {seq!r}"

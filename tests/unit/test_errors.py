@@ -32,4 +32,5 @@ class TestRequireSession:
     def test_tool_error_importable(self):
         """ToolError is importable from fastmcp.exceptions."""
         from fastmcp.exceptions import ToolError as TE
+
         assert TE is ToolError

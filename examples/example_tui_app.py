@@ -43,7 +43,7 @@ def main():
                 print("Please choose 1, 2, 3, or q")
                 print()
 
-        except (EOFError, KeyboardInterrupt):
+        except EOFError, KeyboardInterrupt:
             print("\nGoodbye!")
             sys.exit(0)
 
