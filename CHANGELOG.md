@@ -25,6 +25,7 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
 - **`send_keys` docstring**: Updated to clarify that crossterm apps expect `\\r` (CR)
   for Enter, not `\\n` (LF); `\\n` does not trigger Enter in raw mode
 
+- **All 12 tool docstrings**: Rewritten for conciseness and scannability — shorter first-line summaries, bolded mode distinctions, tighter caveats, consistent Args/Returns/Raises. Non-functional change.
 ### Fixed
 - **Buffer-mode `expect_text` timeout**: When pyte doesn't track a pattern (e.g. complex
   ratatui ANSI sequences), the fallback to raw pexpect output prevents spurious timeouts

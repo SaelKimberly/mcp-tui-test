@@ -170,18 +170,18 @@ def launch_tui(
     dimensions: Optional[str] = "80x24",
     mode: str = "buffer",
 ) -> str:
-    """Launch a TUI application in a subprocess for automated testing.
+    """Launch a TUI app in a subprocess for automated testing.
 
-    Use this first — creates a ScreenSession that other tools target.
-    Supports buffer mode (full TUIs with terminal emulation via pyte)
-    and stream mode (CLI tools, line-by-line output).
+    Call this first — creates a session that all other tools reference.
+    **Buffer mode** (default): full terminal emulation via pyte, position-aware assertions.
+    **Stream mode**: line-by-line pexpect accumulators for CLI tools.
 
     Args:
         command: Shell command to run (e.g. "python my_app.py")
-        session_id: Label for this session, referenced by other tools (default: "default")
-        timeout: Seconds before the subprocess is killed (default: 30)
+        session_id: Label for this session (default: "default")
+        timeout: Kill subprocess after N seconds (default: 30)
         dimensions: Terminal size as WxH, e.g. "80x24" (default: "80x24")
-        mode: "buffer" (full terminal emulation, position-aware) or "stream" (line-by-line output). Default: "buffer" for TUI apps.
+        mode: "buffer" for full TUIs, "stream" for line-by-line CLI (default: "buffer")
 
     Returns:
         Confirmation with session ID, command, dimensions, and mode
@@ -190,7 +190,7 @@ def launch_tui(
     if dimensions:
         try:
             width, height = map(int, dimensions.split("x"))
-        except (ValueError, AttributeError):
+        except ValueError, AttributeError:
             raise ToolError(
                 f"Invalid dimensions format: '{dimensions}'. "
                 "Expected format like '80x24' (WxH)."
@@ -224,12 +224,11 @@ def send_keys(keys: str, session_id: str = "default", delay: float = 0.3) -> str
     """Send keystrokes to the running TUI application.
 
     Use after expect_text to interact with the app.
-    Supports escape sequences: \\n (Enter), \\t (Tab), \\x1b (Escape).
-    Adds a short pause after sending to let the app process input.
+    Supports escape sequences: \\r (Enter), \\t (Tab), \\x1b (Escape).
+    Adds a configurable pause after sending so the app processes input.
 
-    Note: crossterm-based apps (ratatui, etc.) expect \\r (CR, 0x0D) for Enter
-    in raw mode. \\n (LF, 0x0A) does NOT trigger Enter for such apps.
-    Use send_keys("a\\r") to send "a" followed by Enter.
+    ⚠️ Raw-mode TUI apps (ratatui/crossterm) require \\r not \\n for Enter.
+    Use send_keys("q\\r") to type "q" then press Enter.
 
     Args:
         keys: Keystrokes to send. Use \\n for Enter, \\x1b for Escape.
@@ -257,26 +256,22 @@ def capture_screen(
 ) -> str:
     """Snapshot the current terminal screen as plain text.
 
-    In stream mode, returns accumulated process output (before/after buffer).
-    In buffer mode, reads the pyte terminal emulator display.
-    By default strips trailing whitespace and ANSI codes for clean output.
+    Buffer mode returns the pyte terminal emulator display; stream mode
+    returns accumulated pexpect output. Strips ANSI codes and trailing
+    whitespace by default.
 
-    Use preserve_format=True to bypass all stripping and see the exact
-    terminal output including trailing spaces and ANSI escape codes.
-    This is useful for UI/UX review of visual layout and styling.
+    preserve_format=True bypasses all stripping for exact terminal layout.
+    include_ansi keeps ANSI codes (stream mode only; ignored when preserve_format=True).
 
-    ⚠️ Buffer mode caveat: pyte's cell tracking may not perfectly reflect
-    box-drawing characters (│, ─, ┌, etc.) from ratatui's cell-diff rendering.
-    For reliable reads of specific areas, use get_line() or get_screen_region()
-    — they read the same underlying buffer but return less context so the data
-    is easier to inspect character-by-character.
+    ⚠️ pyte may not perfectly track ratatui box-drawing characters (│, ─, ┌).
+    For character-level inspection, use get_line() or get_screen_region()
+    — they return less context so data is easier to read character-by-character.
 
     Args:
         session_id: Session identifier (default: "default")
         include_ansi: Keep ANSI codes in stream mode output (default: False).
                       Ignored when preserve_format=True.
-        preserve_format: Bypass whitespace trimming and ANSI stripping for an
-                         accurate picture of the actual terminal layout
+        preserve_format: Bypass trimming and ANSI stripping for exact layout
                          (default: False)
 
     Returns:
@@ -293,11 +288,12 @@ def capture_screen(
 
 @mcp.tool
 def expect_text(pattern: str, session_id: str = "default", timeout: int = 10) -> str:
-    """Wait for a pattern to appear in terminal output; raise ToolError on timeout.
+    """Wait for output to contain a pattern (blocking, with timeout).
 
-    Use after launch_tui or send_keys to synchronize with the app.
-    Stream mode uses pexpect.expect() on the subprocess output stream.
-    Buffer mode polls the pyte screen display in a loop.
+    Use after launch_tui / send_keys to synchronize with the app before
+    reading state or sending more input.
+    Buffer mode polls the pyte display; stream mode uses pexpect.expect().
+    Raises ToolError on timeout or EOF.
 
     Args:
         pattern: Literal text or regex pattern to wait for
@@ -308,7 +304,7 @@ def expect_text(pattern: str, session_id: str = "default", timeout: int = 10) ->
         Confirmation when found
 
     Raises:
-        ToolError: Timeout waiting for pattern, or EOF reached before match
+        ToolError: Timeout or EOF before match
     """
     session = require_session(session_id)
 
@@ -324,7 +320,9 @@ def expect_text(pattern: str, session_id: str = "default", timeout: int = 10) ->
             time.sleep(0.1)
         # Fallback: check raw pexpect buffer (ANSI-stripped) for patterns
         # that pyte may not have tracked correctly
-        raw = (session.process.before or "") + (getattr(session.process, "after", None) or "")
+        raw = (session.process.before or "") + (
+            getattr(session.process, "after", None) or ""
+        )
         raw_clean = ANSI_ESCAPE.sub("", raw)
         if compiled.search(raw_clean):
             session._update_buffer()
@@ -344,13 +342,11 @@ def expect_text(pattern: str, session_id: str = "default", timeout: int = 10) ->
 
 
 @mcp.tool
-def assert_contains(
-    text: str, session_id: str = "default"
-) -> str:
-    """Verify that the current screen content contains the given text.
+def assert_contains(text: str, session_id: str = "default") -> str:
+    """Assert the current screen content contains the given substring.
 
-    Like capture_screen + substring check packaged as a single assertion.
-    Raises ToolError on failure so the MCP host sees it as an error.
+    Like capture_screen + substring search as a single call.
+    Raises ToolError on failure (clean error surfaced by MCP host).
 
     Args:
         text: Substring to search for in the current screen
@@ -375,9 +371,8 @@ def assert_at_position(
 ) -> str:
     """Assert text appears at a specific (row, col) position (buffer mode only).
 
-    Checks that the screen line at `row`, sliced at `col` for the length of
-    `text`, matches after stripping whitespace. Useful for verifying exact
-    layout rather than just content presence.
+    Slices the screen line at `row` from `col` for the length of `text`,
+    comparing after stripping whitespace. Verifies exact layout, not just content.
 
     Args:
         text: Expected text at the position
@@ -408,8 +403,7 @@ def assert_at_position(
 def get_cursor_position(session_id: str = "default") -> str:
     """Read the cursor's current (row, col) in buffer mode.
 
-    Uses pyte's cursor tracker. Row/col are 0-indexed.
-    Only meaningful in buffer mode — stream mode returns (-1, -1).
+    Uses pyte's cursor tracker. 0-indexed. Stream mode returns (-1, -1).
 
     Args:
         session_id: Session identifier (default: "default")
@@ -432,8 +426,8 @@ def get_screen_region(
 ) -> str:
     """Extract a rectangular region of the screen buffer (buffer mode only).
 
-    Useful for focusing on a specific area instead of scanning the full screen.
-    Row and column ranges are Python-slice style: start inclusive, end exclusive.
+    Focus on a specific area instead of scanning the full screen.
+    Ranges are Python-slice style: start inclusive, end exclusive.
 
     Args:
         row_start: First row to include (0-indexed, inclusive)
@@ -479,8 +473,8 @@ def get_line(row: int, session_id: str = "default") -> str:
 def close_session(session_id: str = "default") -> str:
     """Terminate the TUI subprocess and remove the session.
 
-    Always call this when done to clean up resources.
-    Subsequent tool calls referencing this session_id will raise ToolError.
+    Always call when done to clean up. Subsequent tools referencing
+    this session_id will raise ToolError.
 
     Args:
         session_id: Session to close (default: "default")
@@ -499,8 +493,7 @@ def close_session(session_id: str = "default") -> str:
 def list_sessions() -> str:
     """List all active sessions with their IDs and modes.
 
-    Useful for discovery when multiple sessions exist, or to check
-    state before operating.
+    Shows "No active sessions" when none exist.
 
     Returns:
         Session list, or "No active sessions" if none
@@ -518,8 +511,8 @@ def list_sessions() -> str:
 def send_ctrl(key: str, session_id: str = "default") -> str:
     """Send a Ctrl+Key signal to the TUI application.
 
-    Translates letters to control-character equivalents
-    (e.g. 'c' → Ctrl+C / SIGINT, 'd' → Ctrl+D / EOF).
+    Translates letters to control characters:
+    send_ctrl("c") → Ctrl+C (SIGINT), send_ctrl("d") → Ctrl+D (EOF).
 
     Args:
         key: Letter to combine with Ctrl (e.g. 'c' for Ctrl+C)
