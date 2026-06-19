@@ -12,18 +12,18 @@ import codecs
 import re
 import time
 from dataclasses import dataclass
+import itertools
 from typing import Dict, Optional, Tuple
 
 import pexpect
 import pyte
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from mcp_tui_test._screen import drain_buffer, strip_ansi
 
 # Initialize FastMCP server
 mcp = FastMCP("tui-test")
 
-# Compile ANSI escape regex once for performance
-ANSI_ESCAPE = re.compile(r"\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])")
 
 
 @dataclass(frozen=True, slots=True)
@@ -74,6 +74,9 @@ class ScreenSession:
         self.process = process
         self.mode = mode
         self.dimensions = dimensions
+        self.launch_time: float = time.time()
+        self.command: str = ""
+        self._last_preview: str = ""
         width, height = dimensions
 
         # Initialize pyte screen buffer if in buffer mode
@@ -85,24 +88,10 @@ class ScreenSession:
     def _update_buffer(self):
         """Drain all available process output into pyte screen buffer.
 
-        Uses multiple short-drain passes with sleeps between to catch
-        staggered or batched output that a single pass might miss.
+        Delegates to drain_buffer in _screen.py.
         """
-        if self.mode != "buffer":
-            return
-        # Multi-pass: staggered output may arrive between passes
-        for _ in range(3):
-            try:
-                while True:
-                    output = self.process.read_nonblocking(size=8192, timeout=0.05)
-                    if not output:
-                        break
-                    self.stream.feed(output)
-            except pexpect.TIMEOUT:
-                pass  # No more output ready on this pass
-            except pexpect.EOF:
-                return  # Process ended — no point retrying
-            time.sleep(0.1)
+        if self.mode == "buffer":
+            drain_buffer(self.process, self.screen, self.stream)
 
     def send(self, keys: str, delay: float = 0.3):
         """Send keys to the process and wait for them to be processed."""
@@ -124,6 +113,9 @@ class ScreenSession:
                 line if preserve_format else line.rstrip()
                 for line in self.screen.display
             )
+            # Store preview for list_sessions
+            non_empty = [l for l in lines if l.strip()]
+            self._last_preview = (non_empty[0][:80] if non_empty else "")[:80]
             return ScreenModel(
                 lines=lines,
                 cursor=CursorPosition(self.screen.cursor.y, self.screen.cursor.x),
@@ -143,8 +135,11 @@ class ScreenSession:
                 parts.append(after)
         combined = "".join(parts) if parts else ""
         if not preserve_format:
-            combined = ANSI_ESCAPE.sub("", combined)
+            combined = strip_ansi(combined)
         lines = tuple(combined.split("\n")) if combined else ("",)
+        # Store preview for list_sessions
+        non_empty = [l for l in lines if l.strip()]
+        self._last_preview = (non_empty[0][:80] if non_empty else "")[:80]
         return ScreenModel(
             lines=lines,
             cursor=CursorPosition(-1, -1),
@@ -159,6 +154,8 @@ class ScreenSession:
 
 
 # Store active TUI sessions
+# Auto-incrementing counter for auto-generated session IDs
+_session_counter = itertools.count(1)
 sessions: Dict[str, ScreenSession] = {}
 
 
@@ -198,6 +195,10 @@ def launch_tui(
     else:
         width, height = 80, 24
 
+    # Auto-generate session ID if empty
+    if not session_id:
+        session_id = f"session_{next(_session_counter)}"
+
     # Close existing session if it exists
     if session_id in sessions:
         sessions[session_id].close()
@@ -210,6 +211,7 @@ def launch_tui(
 
     # Launch the TUI application session
     session = ScreenSession(process=process, dimensions=(width, height), mode=mode)
+    session.command = command
 
     sessions[session_id] = session
 
@@ -220,7 +222,7 @@ def launch_tui(
 
 
 @mcp.tool
-def send_keys(keys: str, session_id: str = "default", delay: float = 0.3) -> str:
+def send_keys(keys: str, session_id: str = "default", delay: float = 0.3, inter_key_delay: float = 0.0) -> str:
     """Send keystrokes to the running TUI application.
 
     Use after expect_text to interact with the app.
@@ -230,10 +232,15 @@ def send_keys(keys: str, session_id: str = "default", delay: float = 0.3) -> str
     ⚠️ Raw-mode TUI apps (ratatui/crossterm) require \\r not \\n for Enter.
     Use send_keys("q\\r") to type "q" then press Enter.
 
+    Set inter_key_delay > 0 to send characters one at a time with a
+    pause between each — useful for apps that buffer input or animate
+    per-character. Default 0.0 sends all keys at once (unchanged behavior).
+
     Args:
         keys: Keystrokes to send. Use \\n for Enter, \\x1b for Escape.
         session_id: Session identifier (default: "default")
         delay: Seconds to wait after sending for the app to process input (default: 0.3, minimum 0.1)
+        inter_key_delay: Seconds between each character (default: 0.0, send all at once)
 
     Returns:
         Confirmation message
@@ -243,7 +250,15 @@ def send_keys(keys: str, session_id: str = "default", delay: float = 0.3) -> str
     session = require_session(session_id)
     # Decode Python escape sequences (\x1b, \n, \t, etc.)
     decoded_keys = codecs.decode(keys, "unicode_escape")
-    session.send(decoded_keys, delay=delay)
+    if inter_key_delay > 0:
+        for char in decoded_keys:
+            session.process.send(char)
+            time.sleep(inter_key_delay)
+    else:
+        session.process.send(decoded_keys)
+    time.sleep(delay)
+    if session.mode == "buffer":
+        session._update_buffer()
 
     return f"✓ Sent keys to session {session_id}"
 
@@ -323,11 +338,16 @@ def expect_text(pattern: str, session_id: str = "default", timeout: int = 10) ->
         raw = (session.process.before or "") + (
             getattr(session.process, "after", None) or ""
         )
-        raw_clean = ANSI_ESCAPE.sub("", raw)
+        raw_clean = strip_ansi(raw)
         if compiled.search(raw_clean):
             session._update_buffer()
             return f"✓ Found expected text: '{pattern}' (from raw output)"
-        raise ToolError(f"Timeout waiting for: '{pattern}'")
+        model = session.capture()
+        dump = "\n".join(model.lines[:40])
+        raise ToolError(
+            f"Pattern '{pattern}' not found after {timeout}s.\n"
+            f"Current screen ({len(model.lines)} lines):\n{dump}"
+        )
 
     # Stream mode: use pexpect.expect()
     session.process.timeout = timeout
@@ -336,10 +356,19 @@ def expect_text(pattern: str, session_id: str = "default", timeout: int = 10) ->
     if index == 0:
         return f"✓ Found expected text: '{pattern}'"
     elif index == 1:
-        raise ToolError(f"Timeout waiting for: '{pattern}'")
+        model = session.capture()
+        dump = "\n".join(model.lines[:40])
+        raise ToolError(
+            f"Pattern '{pattern}' not found after {timeout}s.\n"
+            f"Current screen ({len(model.lines)} lines):\n{dump}"
+        )
     else:
-        raise ToolError(f"EOF reached before finding: '{pattern}'")
-
+        model = session.capture()
+        dump = "\n".join(model.lines[:40])
+        raise ToolError(
+            f"EOF reached before finding: '{pattern}'\n"
+            f"Last screen ({len(model.lines)} lines):\n{dump}"
+        )
 
 @mcp.tool
 def assert_contains(text: str, session_id: str = "default") -> str:
@@ -470,6 +499,141 @@ def get_line(row: int, session_id: str = "default") -> str:
 
 
 @mcp.tool
+def wait_for_stable(
+    interval: float = 0.1,
+    consecutive: int = 3,
+    timeout: int = 10,
+    session_id: str = "default",
+) -> str:
+    """Wait for the TUI screen to stop changing (content stabilizes).
+
+    Polls the screen every `interval` seconds until `consecutive`
+    consecutive captures are identical. Essential after sending keys
+    that trigger a re-render — replaces guesswork sleep() calls.
+
+    Args:
+        interval: Seconds between polls (default: 0.1)
+        consecutive: Number of identical samples to confirm stability (default: 3)
+        timeout: Max seconds to wait (default: 10)
+        session_id: Session identifier (default: "default")
+
+    Returns:
+        The final stable screen content
+
+    Raises:
+        ToolError: Screen did not stabilize within timeout
+    """
+    session = require_session(session_id)
+    try:
+        from mcp_tui_test._screen import poll_until_stable
+
+        text = poll_until_stable(
+            session, timeout=timeout, interval=interval, consecutive=consecutive
+        )
+    except TimeoutError as e:
+        raise ToolError(str(e))
+    return f"Screen stabilized (session: {session_id}):\n{'=' * 60}\n{text}\n{'=' * 60}"
+
+
+@mcp.tool
+def wait_for_change(
+    reference: str,
+    interval: float = 0.1,
+    timeout: int = 10,
+    session_id: str = "default",
+) -> str:
+    """Wait for the TUI screen content to change from a reference.
+
+    Polls until screen differs from `reference`. Returns the new
+    screen content. Ideal for detecting state transitions like
+    loading spinners completing or menus opening.
+
+    Args:
+        reference: Previous screen text to compare against
+        interval: Seconds between polls (default: 0.1)
+        timeout: Max seconds to wait (default: 10)
+        session_id: Session identifier (default: "default")
+
+    Returns:
+        The new screen content after change detected
+
+    Raises:
+        ToolError: Screen did not change within timeout
+    """
+    session = require_session(session_id)
+    try:
+        from mcp_tui_test._screen import poll_until_changed
+
+        text = poll_until_changed(
+            session, reference, timeout=timeout, interval=interval
+        )
+    except TimeoutError as e:
+        raise ToolError(str(e))
+    return f"Screen changed (session: {session_id}):\n{'=' * 60}\n{text}\n{'=' * 60}"
+
+
+@mcp.tool
+def get_session_info(
+    session_id: str = "default",
+) -> str:
+    """Get detailed metadata about a session.
+
+    Returns command, mode, dimensions, PID, uptime, and a preview
+    of the last captured screen content.
+
+    Args:
+        session_id: Session identifier (default: "default")
+
+    Returns:
+        Formatted session metadata
+    """
+    session = require_session(session_id)
+    uptime = time.time() - session.launch_time
+    pid = session.process.pid if hasattr(session.process, "pid") else "N/A"
+    w, h = session.dimensions
+    preview = session._last_preview or "(no capture yet)"
+    return (
+        f"Session: {session_id}\n"
+        f"  Command: {session.command}\n"
+        f"  Mode: {session.mode}\n"
+        f"  Dimensions: {w}x{h}\n"
+        f"  PID: {pid}\n"
+        f"  Uptime: {uptime:.0f}s\n"
+        f"  Preview: {preview}"
+    )
+
+
+@mcp.tool
+def get_char(
+    row: int,
+    col: int,
+    session_id: str = "default",
+) -> str:
+    """Get a single character at (row, col) on the screen (buffer mode only).
+
+    Useful for character-level inspection of ratatui box-drawing or
+    text alignment. Returns a space if the position is out of bounds.
+
+    Args:
+        row: 0-indexed row number
+        col: 0-indexed column number
+        session_id: Session identifier (default: "default")
+
+    Returns:
+        The character at that position (or a space)
+    """
+    session = require_session(session_id)
+    model = session.capture()
+    if row >= len(model.lines) or col >= model.width:
+        return " "
+    line = model.lines[row]
+    if col >= len(line):
+        return " "
+    ch = line[col]
+    return f"Character at ({row}, {col}): '{ch}'"
+
+
+@mcp.tool
 def close_session(session_id: str = "default") -> str:
     """Terminate the TUI subprocess and remove the session.
 
@@ -491,7 +655,7 @@ def close_session(session_id: str = "default") -> str:
 
 @mcp.tool
 def list_sessions() -> str:
-    """List all active sessions with their IDs and modes.
+    """List all active sessions with their IDs, modes, and metadata.
 
     Shows "No active sessions" when none exist.
 
@@ -501,10 +665,17 @@ def list_sessions() -> str:
     if not sessions:
         return "No active sessions"
 
-    session_list = "\n".join(
-        [f"- {sid} (mode: {session.mode})" for sid, session in sessions.items()]
-    )
-    return f"Active sessions:\n{session_list}"
+    lines_out = []
+    for sid, session in sessions.items():
+        uptime = time.time() - session.launch_time
+        pid = session.process.pid if hasattr(session.process, "pid") else "N/A"
+        w, h = session.dimensions
+        preview = session._last_preview or "(no capture)"
+        lines_out.append(
+            f"  {sid} — {session.mode} (PID {pid}, {w}x{h}, "
+            f"up {uptime:.0f}s) — \"{preview}\""
+        )
+    return f"Active sessions:\n" + "\n".join(lines_out)
 
 
 @mcp.tool

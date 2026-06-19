@@ -19,6 +19,13 @@ class TestInit:
         assert hasattr(session, "stream")
 
 
+    def test_launch_time_set(self, dummy_process):
+        session = ScreenSession(
+            process=dummy_process, dimensions=(80, 24), mode="stream"
+        )
+        assert session.launch_time > 0
+        assert isinstance(session.launch_time, float)
+
 class TestSend:
     def test_appends_keys(self, session):
         session.send("abc")
@@ -70,6 +77,16 @@ class TestCapture:
         session = ScreenSession(process=proc, dimensions=(80, 24), mode="buffer")
         model = session.capture()
         assert isinstance(model.cursor, CursorPosition)
+
+    def test_last_preview_updated_on_capture(self, session):
+        session.process.before = "hello world\n"
+        session.capture()
+        assert session._last_preview == "hello world"
+
+    def test_last_preview_empty_on_no_output(self, session):
+        session.process.before = ""
+        session.capture()
+        assert session._last_preview == ""
 
 
 class TestClose:

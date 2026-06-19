@@ -63,9 +63,8 @@ class TestExpectText:
         assert "✓" in str(r)
 
     async def test_timeout(self, launched_session):
-        with pytest.raises(ToolError, match="Timeout"):
+        with pytest.raises(ToolError, match="not found after"):
             await mcp.call_tool("expect_text", {"pattern": "ZZZZ_NOT_THERE", "timeout": 1})
-
 
 @pytest.mark.integration
 @pytest.mark.asyncio
@@ -131,6 +130,10 @@ class TestBufferMode:
         r = await mcp.call_tool("expect_text", {"pattern": r"Welcome.*Example"})
         assert "✓" in str(r)
 
+    async def test_get_char(self, buffer_launched):
+        r = await mcp.call_tool("get_char", {"row": 1, "col": 2})
+        assert "Character at" in str(r)
+
 
 @pytest.mark.integration
 @pytest.mark.asyncio
@@ -138,6 +141,70 @@ class TestSendCtrl:
     async def test_send_ctrl(self, launched_session):
         r = await mcp.call_tool("send_ctrl", {"key": "c"})
         assert "✓" in str(r)
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestNewTools:
+    """Integration tests for new tools (wait_for_stable, wait_for_change, get_session_info, etc.)"""
+
+    @pytest.fixture
+    async def launched(self):
+        await mcp.call_tool(
+            "launch_tui", {"command": EXAMPLE_APP, "mode": "buffer"}
+        )
+        try:
+            await mcp.call_tool("expect_text", {"pattern": "Welcome"})
+            yield
+        finally:
+            try:
+                await mcp.call_tool("close_session", {})
+            except Exception:
+                pass
+
+    async def test_wait_for_stable(self, launched):
+        r = await mcp.call_tool(
+            "wait_for_stable", {"interval": 0.05, "consecutive": 2, "timeout": 5}
+        )
+        assert "Screen stabilized" in str(r)
+        assert "Welcome" in str(r)
+
+    async def test_wait_for_change(self, launched):
+        r = await mcp.call_tool("capture_screen", {})
+        ref = str(r)
+        await mcp.call_tool("send_keys", {"keys": "1\n"})
+        r = await mcp.call_tool(
+            "wait_for_change", {"reference": ref, "timeout": 5}
+        )
+        assert "Screen changed" in str(r)
+        assert "Hello, TUI Tester!" in str(r)
+
+    async def test_get_session_info(self, launched):
+        r = await mcp.call_tool("get_session_info", {})
+        text = str(r)
+        assert "Session: default" in text
+        assert "Mode:" in text
+        assert "PID:" in text
+        assert "Uptime:" in text
+
+    async def test_send_keys_inter_key_delay(self, launched):
+        r = await mcp.call_tool(
+            "send_keys", {"keys": "1\n", "inter_key_delay": 0.05}
+        )
+        assert "✓" in str(r)
+
+    async def test_auto_session_id(self):
+        r = await mcp.call_tool(
+            "launch_tui", {"command": EXAMPLE_APP, "session_id": ""}
+        )
+        text = str(r)
+        assert "session_" in text
+        # Extract auto-generated session ID from response
+        import re
+
+        match = re.search(r"session: (session_\d+)", text)
+        assert match, f"Could not find session ID in: {text}"
+        auto_id = match.group(1)
+        await mcp.call_tool("close_session", {"session_id": auto_id})
 
 @pytest.mark.integration
 @pytest.mark.asyncio
