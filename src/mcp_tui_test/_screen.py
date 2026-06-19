@@ -17,25 +17,32 @@ def strip_ansi(text: str) -> str:
     return ANSI_ESCAPE.sub("", text)
 
 
-def drain_buffer(process, screen, stream, max_passes: int = 3) -> None:
+def drain_buffer(process, screen, stream, max_passes: int = 3, max_reads: int = 100) -> None:
     """Drain all available process output into a pyte screen buffer.
 
     Uses multiple short-drain passes with sleeps between to catch
     staggered or batched output that a single pass might miss.
+
+    SAFETY: `max_reads` caps the inner while-loop to prevent an
+    indefinite hang when a continuously-outputting TUI keeps the
+    ptty buffer non-empty (select(0) always returns True).
 
     Args:
         process: pexpect.spawn-like object with read_nonblocking()
         screen: pyte.Screen instance
         stream: pyte.Stream instance
         max_passes: Number of drain passes (default: 3)
+        max_reads: Max read_nonblocking calls per pass (default: 100)
     """
     for _ in range(max_passes):
+        reads = 0
         try:
-            while True:
-                output = process.read_nonblocking(size=8192, timeout=0.05)
+            while reads < max_reads:
+                output = process.read_nonblocking(size=8192, timeout=0)
                 if not output:
                     break
                 stream.feed(output)
+                reads += 1
         except pexpect.TIMEOUT:
             pass  # No more output ready on this pass
         except pexpect.EOF:

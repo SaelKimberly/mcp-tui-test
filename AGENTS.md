@@ -35,12 +35,12 @@ Agent → FastMCP → @mcp.tool → require_session() → ScreenSession → Scre
 **Helper module (`_screen.py`):**
 
 - `ANSI_ESCAPE` regex + `strip_ansi(text)` — ANSI escape removal
-- `drain_buffer(process, screen, stream)` — multi-pass pyte drain (extracted from `ScreenSession._update_buffer`)
+:- `drain_buffer(process, screen, stream, max_passes=3, max_reads=100)` — multi-pass pyte drain with safety cap to prevent indefinite hang (extracted from `ScreenSession._update_buffer`)
 - `screen_text_changed(a, b, threshold=0.05)` — line-aware diff for polling
 - `poll_until_stable(session, timeout, interval, consecutive)` — wait for screen to stop changing
 - `poll_until_changed(session, reference, timeout, interval)` — wait for screen to differ from reference
 
-**Buffer drain:** `_update_buffer()` delegates to `drain_buffer()` in `_screen.py` — 3 drain passes (0.05s timeout, 0.1s gap) via `process.read_nonblocking()`. Falls back to raw pexpect buffer (ANSI-stripped via `strip_ansi`) in `expect_text` if pyte doesn't track the pattern.
+:**Buffer drain:** `_update_buffer()` delegates to `drain_buffer()` in `_screen.py` — 3 drain passes (timeout=0, 0.1s gap, max 100 reads per pass) via `process.read_nonblocking()`. Falls back to raw pexpect buffer (ANSI-stripped via `strip_ansi`) in `expect_text` if pyte doesn't track the pattern.
 
 ## Key Directories
 
