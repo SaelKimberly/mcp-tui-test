@@ -45,3 +45,4 @@ htmlcov/
 # MkDocs
 site/
 .cache/
+rust_out

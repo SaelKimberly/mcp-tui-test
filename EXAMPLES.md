@@ -402,7 +402,7 @@ close_session(session_id="htop2")
    try:
        assert_at_position(text="Expected", row=5, col=10)
    except:
-       debug_output = capture_screen(use_buffer=True)
+       debug_output = capture_screen()
        print(debug_output)
    ```
 

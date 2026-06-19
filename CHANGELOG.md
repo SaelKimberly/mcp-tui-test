@@ -5,6 +5,29 @@ All notable changes to this project will be documented in this file.
 The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
+
+## [0.3.0] - 2026-06-19
+
+### Added
+- **Robust buffer draining**: `_update_buffer()` now uses multi-pass drain (3 passes with
+  0.1s gaps) to catch staggered/batched ANSI output from ratatui apps
+- **Raw pexpect fallback**: `expect_text()` buffer mode falls back to checking the raw
+  pexpect buffer (ANSI-stripped) when pyte doesn't track the pattern — catches cases
+  where pyte misinterprets alternate-screen or cell-diff sequences
+- **Integration test for ratatui**: `TestRatatuiApp` exercises a real crossterm/ratatui
+  binary with buffer mode, tab switching, and Enter key handling
+- **Probe script**: `examples/test_xray_tui.py` documents the diagnostic workflow used
+  to validate the fixes
+
+### Changed
+- **`send_keys` delay enforcement**: Minimum delay of 0.1s is now enforced with
+  `max(delay, 0.1)` instead of being docstring-only
+- **`send_keys` docstring**: Updated to clarify that crossterm apps expect `\\r` (CR)
+  for Enter, not `\\n` (LF); `\\n` does not trigger Enter in raw mode
+
+### Fixed
+- **Buffer-mode `expect_text` timeout**: When pyte doesn't track a pattern (e.g. complex
+  ratatui ANSI sequences), the fallback to raw pexpect output prevents spurious timeouts
 ## [0.2.0] - 2025-01-11
 
 ### Added

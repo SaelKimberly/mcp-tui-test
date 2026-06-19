@@ -127,6 +127,10 @@ class TestBufferMode:
         r = await mcp.call_tool("get_screen_region", {"row_start": 0, "row_end": 5})
         assert "Welcome" in str(r)
 
+    async def test_expect_text_regex_pattern(self, buffer_launched):
+        r = await mcp.call_tool("expect_text", {"pattern": r"Welcome.*Example"})
+        assert "✓" in str(r)
+
 
 @pytest.mark.integration
 @pytest.mark.asyncio
@@ -134,3 +138,66 @@ class TestSendCtrl:
     async def test_send_ctrl(self, launched_session):
         r = await mcp.call_tool("send_ctrl", {"key": "c"})
         assert "✓" in str(r)
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestRatatuiApp:
+    """Integration tests using a real ratatui binary (crossterm + alternate screen).
+
+    Verifies that pyte tracks ratatui's alternate-screen ANSI output,
+    that Tab key switches tabs, and that Enter (\\r) works for crossterm apps.
+    """
+
+    RATATUI_APP = "/tmp/ratatui-test-app/target/release/ratatui-test-app"
+
+    @pytest.fixture
+    async def ratatui_session(self):
+        await mcp.call_tool("launch_tui", {
+            "command": self.RATATUI_APP,
+            "mode": "buffer",
+            "dimensions": "120x40",
+            "timeout": 15,
+        })
+        try:
+            await mcp.call_tool("expect_text", {"pattern": "Main", "timeout": 5})
+            yield
+        finally:
+            try:
+                await mcp.call_tool("close_session", {})
+            except Exception:
+                pass
+
+    async def test_launch_shows_content(self, ratatui_session):
+        r = await mcp.call_tool("capture_screen", {})
+        text = str(r)
+        assert "Main Tab" in text
+        assert "Counter: 0" in text
+        assert "Press 'q' to quit" in text
+
+    async def test_tab_switch(self, ratatui_session):
+        await mcp.call_tool("send_keys", {"keys": "\t", "delay": 0.3})
+        r = await mcp.call_tool("expect_text", {"pattern": "Settings", "timeout": 5})
+        assert "✓" in str(r)
+
+    async def test_enter_increments_counter(self, ratatui_session):
+        """crossterm apps expect \\r for Enter, not \\n."""
+        await mcp.call_tool("send_keys", {"keys": "a\r", "delay": 0.3})
+        r = await mcp.call_tool("capture_screen", {})
+        text = str(r)
+        assert "Counter: 2" in text  # 'a' + Enter = 2 increments
+
+    async def test_send_q_quits(self, ratatui_session):
+        await mcp.call_tool("send_keys", {"keys": "q", "delay": 0.5})
+        # Process exited; session should still be usable for capture
+        await mcp.call_tool("capture_screen", {})
+        # Should not raise
+
+    async def test_get_line_returns_content(self, ratatui_session):
+        r = await mcp.call_tool("get_line", {"row": 3})
+        assert "Main Tab" in str(r) or "Main" in str(r)
+
+    async def test_get_cursor_position(self, ratatui_session):
+        r = await mcp.call_tool("get_cursor_position", {})
+        text = str(r)
+        assert "row" in text
+        assert "column" in text

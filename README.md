@@ -152,15 +152,10 @@ Capture the current screen output of a TUI application.
 **Parameters:**
 - `session_id` (optional): Session identifier (default: "default")
 - `include_ansi` (optional): Whether to include ANSI escape codes in stream mode (default: False)
-- `use_buffer` (optional): Force buffer/stream mode. Auto-detects if None (default: None)
 
 **Examples:**
 ```python
-# Auto-detect mode based on session
 capture_screen(session_id="test1")
-
-# Force buffer mode capture
-capture_screen(session_id="test1", use_buffer=True)
 ```
 
 ### `expect_text`
@@ -182,7 +177,6 @@ Assert that the current screen contains specific text.
 **Parameters:**
 - `text` (required): Text to search for in the current screen
 - `session_id` (optional): Session identifier (default: "default")
-- `use_buffer` (optional): Check buffer/stream mode. Auto-detects if None (default: None)
 
 **Example:**
 ```python
