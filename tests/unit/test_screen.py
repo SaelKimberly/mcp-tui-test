@@ -1,6 +1,7 @@
 """Unit tests for _screen.py helper functions (DummyProcess, no real subprocesses)."""
 
 import pytest
+
 from mcp_tui_test._screen import (
     drain_buffer,
     poll_until_changed,
@@ -45,7 +46,7 @@ class TestScreenTextChanged:
     def test_two_lines_changed_out_of_twenty(self):
         a = "\n".join([f"line {i}" for i in range(20)])
         b = "\n".join(
-            [f"line {i}" if i not in (5, 10) else "CHANGED" for i in range(20)]
+            [f"line {i}" if i not in (5, 10) else "CHANGED" for i in range(20)],
         )
         # 2/20 = 0.10 > 0.05
         assert screen_text_changed(a, b) is True
@@ -64,7 +65,7 @@ class TestScreenTextChanged:
     def test_custom_threshold(self):
         a = "\n".join([f"line {i}" for i in range(10)])
         b = "\n".join(
-            [f"line {i}" if i != 5 else "CHANGED" for i in range(10)]
+            [f"line {i}" if i != 5 else "CHANGED" for i in range(10)],
         )
         # 1/10 = 0.10 < 0.20
         assert screen_text_changed(a, b, threshold=0.20) is False
@@ -105,6 +106,7 @@ class TestPollUntilChanged:
         session = ScreenSession(process=proc, dimensions=(80, 24), mode="stream")
         with pytest.raises(TimeoutError):
             poll_until_changed(session, "same old", timeout=0.1, interval=0.01)
+
 
 class TestDrainBuffer:
     def test_closed_process_handles_eof(self):

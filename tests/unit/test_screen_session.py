@@ -1,6 +1,6 @@
 """Unit tests for ScreenSession (DummyProcess, no real subprocesses)."""
 
-from mcp_tui_test._server import ScreenSession, ScreenModel, CursorPosition
+from mcp_tui_test._server import CursorPosition, ScreenModel, ScreenSession
 from tests.conftest import DummyProcess
 
 
@@ -18,13 +18,13 @@ class TestInit:
         assert hasattr(session, "screen")
         assert hasattr(session, "stream")
 
-
     def test_launch_time_set(self, dummy_process):
         session = ScreenSession(
-            process=dummy_process, dimensions=(80, 24), mode="stream"
+            process=dummy_process, dimensions=(80, 24), mode="stream",
         )
         assert session.launch_time > 0
         assert isinstance(session.launch_time, float)
+
 
 class TestSend:
     def test_appends_keys(self, session):

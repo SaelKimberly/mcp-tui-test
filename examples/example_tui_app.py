@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-Simple example TUI application for testing the TUI MCP server.
+"""Simple example TUI application for testing the TUI MCP server.
 This is a basic interactive menu application.
 """
 
@@ -25,18 +24,18 @@ def main():
         try:
             choice = input("> ").strip().lower()
 
-            if choice == '1':
+            if choice == "1":
                 print("Hello, TUI Tester!")
                 print()
-            elif choice == '2':
+            elif choice == "2":
                 print("This is an example TUI application.")
                 print("Created for testing the MCP TUI Test server.")
                 print()
-            elif choice == '3':
+            elif choice == "3":
                 counter += 1
                 print(f"Counter value: {counter}")
                 print()
-            elif choice == 'q':
+            elif choice == "q":
                 print("Goodbye!")
                 sys.exit(0)
             else:

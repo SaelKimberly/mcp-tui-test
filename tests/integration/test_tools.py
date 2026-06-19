@@ -6,6 +6,7 @@ Marked @pytest.mark.integration to allow exclusion from fast runs.
 
 import pytest
 from fastmcp.exceptions import ToolError
+
 from mcp_tui_test._server import mcp
 
 EXAMPLE_APP = "python examples/example_tui_app.py"
@@ -66,6 +67,7 @@ class TestExpectText:
         with pytest.raises(ToolError, match="not found after"):
             await mcp.call_tool("expect_text", {"pattern": "ZZZZ_NOT_THERE", "timeout": 1})
 
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 class TestSendAndCapture:
@@ -81,6 +83,7 @@ class TestSendAndCapture:
         r = await mcp.call_tool("capture_screen", {})
         assert "Welcome" in str(r)
 
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 class TestAssertions:
@@ -93,8 +96,9 @@ class TestAssertions:
         await mcp.call_tool("expect_text", {"pattern": "Welcome"})
         with pytest.raises(ToolError, match="Assertion failed"):
             await mcp.call_tool("assert_contains", {"text": "NOTTHERE"})
-@pytest.mark.integration
 
+
+@pytest.mark.integration
 @pytest.mark.asyncio
 class TestBufferMode:
     @pytest.fixture
@@ -142,6 +146,7 @@ class TestSendCtrl:
         r = await mcp.call_tool("send_ctrl", {"key": "c"})
         assert "✓" in str(r)
 
+
 @pytest.mark.integration
 @pytest.mark.asyncio
 class TestNewTools:
@@ -150,7 +155,7 @@ class TestNewTools:
     @pytest.fixture
     async def launched(self):
         await mcp.call_tool(
-            "launch_tui", {"command": EXAMPLE_APP, "mode": "buffer"}
+            "launch_tui", {"command": EXAMPLE_APP, "mode": "buffer"},
         )
         try:
             await mcp.call_tool("expect_text", {"pattern": "Welcome"})
@@ -163,7 +168,7 @@ class TestNewTools:
 
     async def test_wait_for_stable(self, launched):
         r = await mcp.call_tool(
-            "wait_for_stable", {"interval": 0.05, "consecutive": 2, "timeout": 5}
+            "wait_for_stable", {"interval": 0.05, "consecutive": 2, "timeout": 5},
         )
         assert "Screen stabilized" in str(r)
         assert "Welcome" in str(r)
@@ -173,7 +178,7 @@ class TestNewTools:
         ref = str(r)
         await mcp.call_tool("send_keys", {"keys": "1\n"})
         r = await mcp.call_tool(
-            "wait_for_change", {"reference": ref, "timeout": 5}
+            "wait_for_change", {"reference": ref, "timeout": 5},
         )
         assert "Screen changed" in str(r)
         assert "Hello, TUI Tester!" in str(r)
@@ -188,13 +193,13 @@ class TestNewTools:
 
     async def test_send_keys_inter_key_delay(self, launched):
         r = await mcp.call_tool(
-            "send_keys", {"keys": "1\n", "inter_key_delay": 0.05}
+            "send_keys", {"keys": "1\n", "inter_key_delay": 0.05},
         )
         assert "✓" in str(r)
 
     async def test_auto_session_id(self):
         r = await mcp.call_tool(
-            "launch_tui", {"command": EXAMPLE_APP, "session_id": ""}
+            "launch_tui", {"command": EXAMPLE_APP, "session_id": ""},
         )
         text = str(r)
         assert "session_" in text
@@ -205,6 +210,7 @@ class TestNewTools:
         assert match, f"Could not find session ID in: {text}"
         auto_id = match.group(1)
         await mcp.call_tool("close_session", {"session_id": auto_id})
+
 
 @pytest.mark.integration
 @pytest.mark.asyncio
@@ -247,7 +253,7 @@ class TestRatatuiApp:
         assert "✓" in str(r)
 
     async def test_enter_increments_counter(self, ratatui_session):
-        """crossterm apps expect \\r for Enter, not \\n."""
+        """Crossterm apps expect \\r for Enter, not \\n."""
         await mcp.call_tool("send_keys", {"keys": "a\r", "delay": 0.3})
         r = await mcp.call_tool("capture_screen", {})
         text = str(r)

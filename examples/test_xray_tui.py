@@ -3,8 +3,8 @@
 """
 
 import asyncio
-import sys
 import os
+import sys
 
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
@@ -16,8 +16,8 @@ RATATUI_APP = "/tmp/ratatui-test-app/target/release/ratatui-test-app"
 def text(r):
     """Extract text from a ToolResult."""
     parts = []
-    for item in r.content if hasattr(r, 'content') else [r]:
-        if hasattr(item, 'text'):
+    for item in r.content if hasattr(r, "content") else [r]:
+        if hasattr(item, "text"):
             parts.append(item.text)
         else:
             parts.append(str(item))
@@ -80,7 +80,7 @@ async def step1_baseline():
 async def step2_send_q():
     """Step 1.2: Send 'q' and verify process exits."""
     await tool("send_keys", keys="q", session_id="probe", delay=0.5)
-    print(f"  Sent 'q'")
+    print("  Sent 'q'")
     await asyncio.sleep(0.5)
     try:
         screen = await tool("capture_screen", session_id="probe")
@@ -96,7 +96,7 @@ async def step3_tab_switch():
     await tool("launch_tui",
                command=RATATUI_APP, session_id="probe", timeout=15,
                dimensions="120x40", mode="buffer")
-    print(f"  Launch OK")
+    print("  Launch OK")
     await asyncio.sleep(1.5)
 
     ok = await run_test("expect_text Main",
@@ -131,7 +131,7 @@ async def step4_enter_key():
     await tool("launch_tui",
                command=RATATUI_APP, session_id="probe", timeout=15,
                dimensions="120x40", mode="buffer")
-    print(f"  Launch OK")
+    print("  Launch OK")
     await asyncio.sleep(1.5)
 
     # Test with \r (CR - what crossterm expects)
@@ -153,7 +153,7 @@ async def step4_enter_key():
     await tool("launch_tui",
                command=RATATUI_APP, session_id="probe", timeout=15,
                dimensions="120x40", mode="buffer")
-    print(f"  Launch OK (for \\n test)")
+    print("  Launch OK (for \\n test)")
     await asyncio.sleep(1.5)
 
     await tool("send_keys", keys="a\n", session_id="probe", delay=0.5)
@@ -178,7 +178,7 @@ async def step5_polling():
     await tool("launch_tui",
                command=RATATUI_APP, session_id="probe", timeout=15,
                dimensions="120x40", mode="buffer")
-    print(f"  Launch OK")
+    print("  Launch OK")
     await asyncio.sleep(1.5)
 
     await tool("send_keys", keys="a\r", session_id="probe", delay=0.1)
@@ -200,7 +200,7 @@ async def step6_pyte_tracking():
     await tool("launch_tui",
                command=RATATUI_APP, session_id="probe", timeout=15,
                dimensions="120x40", mode="buffer")
-    print(f"  Launch OK")
+    print("  Launch OK")
     await asyncio.sleep(1.5)
 
     raw_screen = await tool("capture_screen", session_id="probe", preserve_format=True)

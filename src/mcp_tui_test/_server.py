@@ -1,6 +1,5 @@
 #!/usr/bin/env python3
-"""
-MCP Server for TUI Testing
+"""MCP Server for TUI Testing
 Like Playwright, but for Terminal User Interfaces
 
 Supports two modes:
@@ -9,21 +8,20 @@ Supports two modes:
 """
 
 import codecs
+import itertools
 import re
 import time
 from dataclasses import dataclass
-import itertools
-from typing import Dict, Optional, Tuple
 
 import pexpect
 import pyte
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+
 from mcp_tui_test._screen import drain_buffer, strip_ansi
 
 # Initialize FastMCP server
 mcp = FastMCP("tui-test")
-
 
 
 @dataclass(frozen=True, slots=True)
@@ -46,7 +44,7 @@ class ScreenModel:
         return "\n".join(self.lines)
 
 
-def require_session(session_id: str) -> "ScreenSession":
+def require_session(session_id: str) -> ScreenSession:
     """Look up session by ID or raise ToolError if not found."""
     if session_id not in sessions:
         raise ToolError(f"No active session found: {session_id}")
@@ -54,8 +52,7 @@ def require_session(session_id: str) -> "ScreenSession":
 
 
 class ScreenSession:
-    """
-    Wrapper combining pexpect and pyte for hybrid stream/buffer testing.
+    """Wrapper combining pexpect and pyte for hybrid stream/buffer testing.
 
     Attributes:
         process: pexpect.spawn instance
@@ -63,12 +60,13 @@ class ScreenSession:
         stream: pyte.Stream instance (buffer mode)
         mode: "stream" or "buffer"
         dimensions: (width, height) tuple
+
     """
 
     def __init__(
         self,
         process,  # duck-typed: .send(), .read_nonblocking(), .expect(), .before, .close()
-        dimensions: Tuple[int, int],
+        dimensions: tuple[int, int],
         mode: str = "stream",
     ):
         self.process = process
@@ -106,6 +104,7 @@ class ScreenSession:
         Args:
             preserve_format: If True, keep trailing whitespace and ANSI codes
                              for an accurate picture of the terminal layout.
+
         """
         if self.mode == "buffer":
             self._update_buffer()
@@ -156,7 +155,7 @@ class ScreenSession:
 # Store active TUI sessions
 # Auto-incrementing counter for auto-generated session IDs
 _session_counter = itertools.count(1)
-sessions: Dict[str, ScreenSession] = {}
+sessions: dict[str, ScreenSession] = {}
 
 
 @mcp.tool
@@ -164,7 +163,7 @@ def launch_tui(
     command: str,
     session_id: str = "default",
     timeout: int = 30,
-    dimensions: Optional[str] = "80x24",
+    dimensions: str | None = "80x24",
     mode: str = "buffer",
 ) -> str:
     """Launch a TUI app in a subprocess for automated testing.
@@ -182,6 +181,7 @@ def launch_tui(
 
     Returns:
         Confirmation with session ID, command, dimensions, and mode
+
     """
     # Parse dimensions
     if dimensions:
@@ -190,7 +190,7 @@ def launch_tui(
         except ValueError, AttributeError:
             raise ToolError(
                 f"Invalid dimensions format: '{dimensions}'. "
-                "Expected format like '80x24' (WxH)."
+                "Expected format like '80x24' (WxH).",
             )
     else:
         width, height = 80, 24
@@ -206,7 +206,10 @@ def launch_tui(
 
     # Spawn the TUI process
     process = pexpect.spawn(
-        command, timeout=timeout, dimensions=(height, width), encoding="utf-8"
+        command,
+        timeout=timeout,
+        dimensions=(height, width),
+        encoding="utf-8",
     )
 
     # Launch the TUI application session
@@ -222,7 +225,12 @@ def launch_tui(
 
 
 @mcp.tool
-def send_keys(keys: str, session_id: str = "default", delay: float = 0.3, inter_key_delay: float = 0.0) -> str:
+def send_keys(
+    keys: str,
+    session_id: str = "default",
+    delay: float = 0.3,
+    inter_key_delay: float = 0.0,
+) -> str:
     """Send keystrokes to the running TUI application.
 
     Use after expect_text to interact with the app.
@@ -244,6 +252,7 @@ def send_keys(keys: str, session_id: str = "default", delay: float = 0.3, inter_
 
     Returns:
         Confirmation message
+
     """
     # Enforce minimum delay so the app has time to process input
     delay = max(delay, 0.1)
@@ -291,12 +300,13 @@ def capture_screen(
 
     Returns:
         Screen content block with session info and mode label
+
     """
     session = require_session(session_id)
     model = session.capture(preserve_format=preserve_format)
     output = model.text
     if include_ansi and session.mode == "stream" and not preserve_format:
-        output = session.process.before if session.process.before else ""
+        output = session.process.before or ""
     mode_label = session.mode
     return f"Screen output (session: {session_id}, mode: {mode_label}):\n{'=' * 60}\n{output}\n{'=' * 60}"
 
@@ -320,6 +330,7 @@ def expect_text(pattern: str, session_id: str = "default", timeout: int = 10) ->
 
     Raises:
         ToolError: Timeout or EOF before match
+
     """
     session = require_session(session_id)
 
@@ -346,7 +357,7 @@ def expect_text(pattern: str, session_id: str = "default", timeout: int = 10) ->
         dump = "\n".join(model.lines[:40])
         raise ToolError(
             f"Pattern '{pattern}' not found after {timeout}s.\n"
-            f"Current screen ({len(model.lines)} lines):\n{dump}"
+            f"Current screen ({len(model.lines)} lines):\n{dump}",
         )
 
     # Stream mode: use pexpect.expect()
@@ -355,20 +366,20 @@ def expect_text(pattern: str, session_id: str = "default", timeout: int = 10) ->
 
     if index == 0:
         return f"✓ Found expected text: '{pattern}'"
-    elif index == 1:
+    if index == 1:
         model = session.capture()
         dump = "\n".join(model.lines[:40])
         raise ToolError(
             f"Pattern '{pattern}' not found after {timeout}s.\n"
-            f"Current screen ({len(model.lines)} lines):\n{dump}"
+            f"Current screen ({len(model.lines)} lines):\n{dump}",
         )
-    else:
-        model = session.capture()
-        dump = "\n".join(model.lines[:40])
-        raise ToolError(
-            f"EOF reached before finding: '{pattern}'\n"
-            f"Last screen ({len(model.lines)} lines):\n{dump}"
-        )
+    model = session.capture()
+    dump = "\n".join(model.lines[:40])
+    raise ToolError(
+        f"EOF reached before finding: '{pattern}'\n"
+        f"Last screen ({len(model.lines)} lines):\n{dump}",
+    )
+
 
 @mcp.tool
 def assert_contains(text: str, session_id: str = "default") -> str:
@@ -386,6 +397,7 @@ def assert_contains(text: str, session_id: str = "default") -> str:
 
     Raises:
         ToolError: Text not found in output
+
     """
     session = require_session(session_id)
     model = session.capture()
@@ -396,7 +408,10 @@ def assert_contains(text: str, session_id: str = "default") -> str:
 
 @mcp.tool
 def assert_at_position(
-    text: str, row: int, col: int, session_id: str = "default"
+    text: str,
+    row: int,
+    col: int,
+    session_id: str = "default",
 ) -> str:
     """Assert text appears at a specific (row, col) position (buffer mode only).
 
@@ -414,6 +429,7 @@ def assert_at_position(
 
     Raises:
         ToolError: Row out of bounds, or text mismatch at position
+
     """
     session = require_session(session_id)
     model = session.capture()
@@ -424,7 +440,7 @@ def assert_at_position(
     if actual.strip() == text.strip():
         return f"✓ Assertion passed: Found '{text}' at position ({row}, {col})"
     raise ToolError(
-        f"Assertion failed: Expected '{text}' at ({row},{col}) but found '{actual.strip()}'"
+        f"Assertion failed: Expected '{text}' at ({row},{col}) but found '{actual.strip()}'",
     )
 
 
@@ -439,6 +455,7 @@ def get_cursor_position(session_id: str = "default") -> str:
 
     Returns:
         Cursor position as (row, col)
+
     """
     session = require_session(session_id)
     model = session.capture()
@@ -450,7 +467,7 @@ def get_screen_region(
     row_start: int,
     row_end: int,
     col_start: int = 0,
-    col_end: Optional[int] = None,
+    col_end: int | None = None,
     session_id: str = "default",
 ) -> str:
     """Extract a rectangular region of the screen buffer (buffer mode only).
@@ -467,6 +484,7 @@ def get_screen_region(
 
     Returns:
         Region text block with session info
+
     """
     session = require_session(session_id)
     model = session.capture()
@@ -490,6 +508,7 @@ def get_line(row: int, session_id: str = "default") -> str:
 
     Raises:
         ToolError: Row out of bounds
+
     """
     session = require_session(session_id)
     model = session.capture()
@@ -522,13 +541,17 @@ def wait_for_stable(
 
     Raises:
         ToolError: Screen did not stabilize within timeout
+
     """
     session = require_session(session_id)
     try:
         from mcp_tui_test._screen import poll_until_stable
 
         text = poll_until_stable(
-            session, timeout=timeout, interval=interval, consecutive=consecutive
+            session,
+            timeout=timeout,
+            interval=interval,
+            consecutive=consecutive,
         )
     except TimeoutError as e:
         raise ToolError(str(e))
@@ -559,13 +582,17 @@ def wait_for_change(
 
     Raises:
         ToolError: Screen did not change within timeout
+
     """
     session = require_session(session_id)
     try:
         from mcp_tui_test._screen import poll_until_changed
 
         text = poll_until_changed(
-            session, reference, timeout=timeout, interval=interval
+            session,
+            reference,
+            timeout=timeout,
+            interval=interval,
         )
     except TimeoutError as e:
         raise ToolError(str(e))
@@ -586,6 +613,7 @@ def get_session_info(
 
     Returns:
         Formatted session metadata
+
     """
     session = require_session(session_id)
     uptime = time.time() - session.launch_time
@@ -621,6 +649,7 @@ def get_char(
 
     Returns:
         The character at that position (or a space)
+
     """
     session = require_session(session_id)
     model = session.capture()
@@ -645,6 +674,7 @@ def close_session(session_id: str = "default") -> str:
 
     Returns:
         Confirmation
+
     """
     session = require_session(session_id)
     session.close()
@@ -661,6 +691,7 @@ def list_sessions() -> str:
 
     Returns:
         Session list, or "No active sessions" if none
+
     """
     if not sessions:
         return "No active sessions"
@@ -673,9 +704,9 @@ def list_sessions() -> str:
         preview = session._last_preview or "(no capture)"
         lines_out.append(
             f"  {sid} — {session.mode} (PID {pid}, {w}x{h}, "
-            f"up {uptime:.0f}s) — \"{preview}\""
+            f'up {uptime:.0f}s) — "{preview}"',
         )
-    return f"Active sessions:\n" + "\n".join(lines_out)
+    return "Active sessions:\n" + "\n".join(lines_out)
 
 
 @mcp.tool
@@ -691,6 +722,7 @@ def send_ctrl(key: str, session_id: str = "default") -> str:
 
     Returns:
         Confirmation
+
     """
     session = require_session(session_id)
 

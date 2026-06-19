@@ -29,7 +29,7 @@ Agent → FastMCP → @mcp.tool → require_session() → ScreenSession → Scre
 - `CursorPosition(row, col)` — frozen+slots dataclass
 - `ScreenModel(lines, cursor, width, height, mode)` — frozen+slots dataclass; `.text` property joins lines
 - `ScreenSession` — wraps pexpect + pyte; methods: `send()`, `capture()`, `_update_buffer()`, `close()`; fields: `launch_time`, `command`, `_last_preview`
-- `sessions: Dict[str, ScreenSession]` — module-level mutable state
+- `sessions: dict[str, ScreenSession]` — module-level mutable state
 - `require_session(id)` — lookup or `ToolError`
 
 **Helper module (`_screen.py`):**
@@ -115,7 +115,7 @@ No linting, formatting, or type-checking commands configured (no ruff/black/mypy
 - Session lookup failure → `ToolError("No active session found: '{session_id}'")`
 
 ### Session management
-- Global `sessions: Dict[str, ScreenSession]` — single source of truth
+- Global `sessions: dict[str, ScreenSession]` — single source of truth
 - `launch_tui` replaces existing session with same `session_id` (closes old, creates new)
 - `close_session` deletes from dict after closing process
 - Tools call `require_session(id)` at entry — raises `ToolError` on miss

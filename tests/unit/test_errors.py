@@ -2,7 +2,8 @@
 
 import pytest
 from fastmcp.exceptions import ToolError
-from mcp_tui_test._server import require_session, ScreenSession
+
+from mcp_tui_test._server import ScreenSession, require_session
 
 
 class TestRequireSession:

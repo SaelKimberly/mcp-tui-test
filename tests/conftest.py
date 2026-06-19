@@ -2,6 +2,7 @@
 
 import pexpect
 import pytest
+
 from mcp_tui_test._server import ScreenSession, sessions
 
 

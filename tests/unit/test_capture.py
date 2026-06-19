@@ -1,6 +1,7 @@
 """Tests for ScreenModel and CursorPosition dataclasses."""
 
 import pytest
+
 from mcp_tui_test._server import CursorPosition, ScreenModel
 
 

@@ -33,6 +33,7 @@ def drain_buffer(process, screen, stream, max_passes: int = 3, max_reads: int = 
         stream: pyte.Stream instance
         max_passes: Number of drain passes (default: 3)
         max_reads: Max read_nonblocking calls per pass (default: 100)
+
     """
     for _ in range(max_passes):
         reads = 0
@@ -71,7 +72,7 @@ def screen_text_changed(a: str, b: str, threshold: float = 0.05) -> bool:
 
 
 def poll_until_stable(
-    session, timeout: float = 10, interval: float = 0.1, consecutive: int = 3
+    session, timeout: float = 10, interval: float = 0.1, consecutive: int = 3,
 ) -> str:
     """Poll screen until it remains stable for `consecutive` samples.
 
@@ -102,7 +103,7 @@ def poll_until_stable(
 
 
 def poll_until_changed(
-    session, reference: str, timeout: float = 10, interval: float = 0.1
+    session, reference: str, timeout: float = 10, interval: float = 0.1,
 ) -> str:
     """Poll screen until content differs from `reference`.
 
