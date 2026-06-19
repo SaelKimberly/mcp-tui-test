@@ -102,7 +102,7 @@ asyncio.run(s())
 "
 ```
 
-No linting, formatting, or type-checking commands configured (no ruff/black/mypy in dev deps).
+No linting, formatting, or type-checking commands in dev deps. Ruff config exists in pyproject.toml (line-length=120, target-version=py314, preview enabled) but ruff itself is not declared as a dev dependency.
 
 ### Module structure
 - Two-module core: `_server.py` contains dataclasses, `ScreenSession`, sessions dict, and 17 `@mcp.tool` functions; `_screen.py` contains extracted helper functions (ANSI stripping, drain_buffer, polling logic)
@@ -165,7 +165,7 @@ No linting, formatting, or type-checking commands configured (no ruff/black/mypy
 - **MCP framework**: FastMCP (`>=3.4.2`) — tools are registered via `@mcp.tool` decorator on sync functions
 - **Process control**: pexpect (`>=4.9.0`)
 - **Terminal emulation**: pyte (`>=0.8.2`)
-- **Formatters/linters**: None configured (no ruff, black, mypy in dev deps)
+- **Formatters/linters**: Ruff config (`[tool.ruff]`) in pyproject.toml, but ruff not in dev deps; can be run via `uvx ruff` or installed ad-hoc.
 - **Documentation site**: MkDocs with cinder theme, mermaid2 plugin, localsearch plugin
 - **Claude Desktop config**: `claude_desktop_config.example.json` — command is `mcp-tui-test` (console script)
 

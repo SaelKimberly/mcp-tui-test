@@ -6,18 +6,14 @@ from tests.conftest import DummyProcess
 
 class TestInit:
     def test_stream_mode(self, dummy_process):
-        session = ScreenSession(
-            process=dummy_process, dimensions=(80, 24), mode="stream"
-        )
+        session = ScreenSession(process=dummy_process, dimensions=(80, 24), mode="stream")
         assert session.mode == "stream"
         assert session.dimensions == (80, 24)
         assert session.process is dummy_process
         assert not hasattr(session, "screen")
 
     def test_buffer_mode(self, dummy_process):
-        session = ScreenSession(
-            process=dummy_process, dimensions=(80, 24), mode="buffer"
-        )
+        session = ScreenSession(process=dummy_process, dimensions=(80, 24), mode="buffer")
         assert session.mode == "buffer"
         assert hasattr(session, "screen")
         assert hasattr(session, "stream")

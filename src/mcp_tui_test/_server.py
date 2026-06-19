@@ -108,10 +108,7 @@ class ScreenSession:
         """
         if self.mode == "buffer":
             self._update_buffer()
-            lines = tuple(
-                line if preserve_format else line.rstrip()
-                for line in self.screen.display
-            )
+            lines = tuple(line if preserve_format else line.rstrip() for line in self.screen.display)
             # Store preview for list_sessions
             non_empty = [l for l in lines if l.strip()]
             self._last_preview = (non_empty[0][:80] if non_empty else "")[:80]
@@ -219,8 +216,7 @@ def launch_tui(
             width, height = map(int, dimensions.split("x"))
         except ValueError, AttributeError:
             raise ToolError(
-                f"Invalid dimensions format: '{dimensions}'. "
-                "Expected format like '80x24' (WxH).",
+                f"Invalid dimensions format: '{dimensions}'. Expected format like '80x24' (WxH).",
             )
     else:
         width, height = 80, 24
@@ -376,9 +372,7 @@ def expect_text(pattern: str, session_id: str = "default", timeout: int = 10) ->
             time.sleep(0.1)
         # Fallback: check raw pexpect buffer (ANSI-stripped) for patterns
         # that pyte may not have tracked correctly
-        raw = (session.process.before or "") + (
-            getattr(session.process, "after", None) or ""
-        )
+        raw = (session.process.before or "") + (getattr(session.process, "after", None) or "")
         raw_clean = strip_ansi(raw)
         if compiled.search(raw_clean):
             session._update_buffer()
@@ -386,8 +380,7 @@ def expect_text(pattern: str, session_id: str = "default", timeout: int = 10) ->
         model = session.capture()
         dump = "\n".join(model.lines[:40])
         raise ToolError(
-            f"Pattern '{pattern}' not found after {timeout}s.\n"
-            f"Current screen ({len(model.lines)} lines):\n{dump}",
+            f"Pattern '{pattern}' not found after {timeout}s.\nCurrent screen ({len(model.lines)} lines):\n{dump}",
         )
 
     # Stream mode: use pexpect.expect()
@@ -400,14 +393,12 @@ def expect_text(pattern: str, session_id: str = "default", timeout: int = 10) ->
         model = session.capture()
         dump = "\n".join(model.lines[:40])
         raise ToolError(
-            f"Pattern '{pattern}' not found after {timeout}s.\n"
-            f"Current screen ({len(model.lines)} lines):\n{dump}",
+            f"Pattern '{pattern}' not found after {timeout}s.\nCurrent screen ({len(model.lines)} lines):\n{dump}",
         )
     model = session.capture()
     dump = "\n".join(model.lines[:40])
     raise ToolError(
-        f"EOF reached before finding: '{pattern}'\n"
-        f"Last screen ({len(model.lines)} lines):\n{dump}",
+        f"EOF reached before finding: '{pattern}'\nLast screen ({len(model.lines)} lines):\n{dump}",
     )
 
 
@@ -733,8 +724,7 @@ def list_sessions() -> str:
         w, h = session.dimensions
         preview = session._last_preview or "(no capture)"
         lines_out.append(
-            f"  {sid} — {session.mode} (PID {pid}, {w}x{h}, "
-            f'up {uptime:.0f}s) — "{preview}"',
+            f'  {sid} — {session.mode} (PID {pid}, {w}x{h}, up {uptime:.0f}s) — "{preview}"',
         )
     return "Active sessions:\n" + "\n".join(lines_out)
 

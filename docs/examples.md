@@ -156,9 +156,7 @@ close_session(session_id="htop")
 
 ```python
 # Launch application with structured layout
-launch_tui(
-    command="python dashboard.py", mode="buffer", session_id="dash", dimensions="100x30"
-)
+launch_tui(command="python dashboard.py", mode="buffer", session_id="dash", dimensions="100x30")
 
 # Wait for dashboard to load
 expect_text(pattern="Dashboard", session_id="dash")
@@ -170,9 +168,7 @@ assert_at_position(text="Dashboard", row=0, col=35, session_id="dash")
 assert_at_position(text="Status: OK", row=29, col=80, session_id="dash")
 
 # Extract sidebar (first 20 columns)
-sidebar = get_screen_region(
-    row_start=1, row_end=28, col_start=0, col_end=20, session_id="dash"
-)
+sidebar = get_screen_region(row_start=1, row_end=28, col_start=0, col_end=20, session_id="dash")
 
 # Sidebar should contain menu items
 assert "Menu" in sidebar
@@ -188,9 +184,7 @@ close_session(session_id="dash")
 
 ```python
 # Launch text editor
-launch_tui(
-    command="nano test.txt", mode="buffer", session_id="nano", dimensions="80x24"
-)
+launch_tui(command="nano test.txt", mode="buffer", session_id="nano", dimensions="80x24")
 
 # Wait for nano to start
 expect_text(pattern="GNU nano", session_id="nano")
@@ -255,9 +249,7 @@ launch_tui(command="python status_app.py", mode="buffer", session_id="status")
 expect_text(pattern="System Status", session_id="status")
 
 # Capture initial state of status region
-initial_status = get_screen_region(
-    row_start=10, row_end=15, col_start=0, col_end=50, session_id="status"
-)
+initial_status = get_screen_region(row_start=10, row_end=15, col_start=0, col_end=50, session_id="status")
 
 # Trigger a change
 send_keys(keys="r", session_id="status")  # Refresh
@@ -266,9 +258,7 @@ send_keys(keys="r", session_id="status")  # Refresh
 send_keys(keys="", session_id="status", delay=1.0)
 
 # Capture updated state
-updated_status = get_screen_region(
-    row_start=10, row_end=15, col_start=0, col_end=50, session_id="status"
-)
+updated_status = get_screen_region(row_start=10, row_end=15, col_start=0, col_end=50, session_id="status")
 
 # Compare regions
 if initial_status != updated_status:

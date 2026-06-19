@@ -17,9 +17,7 @@ def strip_ansi(text: str) -> str:
     return ANSI_ESCAPE.sub("", text)
 
 
-def drain_buffer(
-    process, screen, stream, max_passes: int = 3, max_reads: int = 100
-) -> None:
+def drain_buffer(process, screen, stream, max_passes: int = 3, max_reads: int = 100) -> None:
     """Drain all available process output into a pyte screen buffer.
 
     Uses multiple short-drain passes with sleeps between to catch

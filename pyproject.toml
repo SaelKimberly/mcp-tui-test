@@ -38,3 +38,11 @@ testpaths = ["tests"]
 markers = [
     "integration: marks tests that launch real subprocesses (deselect with '-m \"not integration\"')",
 ]
+
+[tool.ruff]
+preview = true
+line-length = 120
+target-version = "py314"
+
+[tool.ruff.lint]
+extend-fixable = ["I"]

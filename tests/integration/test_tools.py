@@ -65,9 +65,7 @@ class TestExpectText:
 
     async def test_timeout(self, launched_session):
         with pytest.raises(ToolError, match="not found after"):
-            await mcp.call_tool(
-                "expect_text", {"pattern": "ZZZZ_NOT_THERE", "timeout": 1}
-            )
+            await mcp.call_tool("expect_text", {"pattern": "ZZZZ_NOT_THERE", "timeout": 1})
 
 
 @pytest.mark.integration
@@ -117,9 +115,7 @@ class TestBufferMode:
                 pass
 
     async def test_assert_at_position(self, buffer_launched):
-        r = await mcp.call_tool(
-            "assert_at_position", {"text": "Welcome", "row": 1, "col": 2}
-        )
+        r = await mcp.call_tool("assert_at_position", {"text": "Welcome", "row": 1, "col": 2})
         assert "✓" in str(r)
 
     async def test_get_cursor_position(self, buffer_launched):
