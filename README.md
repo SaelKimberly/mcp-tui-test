@@ -100,6 +100,36 @@ Or if installed as a package:
 }
 ```
 
+## Agent Skill: TUI Scenario Walkthroughs
+
+`skills/tui-test/` ships an agent skill (oh-my-pi / Claude Code layout: `SKILL.md` + `references/`)
+that turns the tools above into a repeatable walkthrough workflow: pre-registered
+expectations, a machine-replayable scenario script linted and run by `run_scenario`, a transcript as evidence, a visual
+polish rubric, and a findings review.
+
+A scenario is a **markdown document** with a `name`/`description` header and exactly one python block
+of bare step calls, parsed with `ast` and never executed. It may end with a `choice()` epilogue that
+reports which of several possible end states the app reached:
+
+```python
+launch("env TERM=xterm-256color LC_ALL=C nano notes.txt", mode="buffer", dimensions="120x40")
+expect("GNU nano", timeout=5)
+send("hello", delay=0.5)
+assert_at("hello", row=1, col=0)
+choice({
+    "saved cleanly": expect("Wrote 1 line", timeout=5),
+    "still dirty": assert_text(" *"),
+})
+```
+
+`run_scenario(script=<document>, dry_run=True)` returns lint diagnostics (with carets and did-you-mean
+hints) plus the resolved pipeline without launching anything; drop `dry_run` to run it and get the
+transcript. While iterating, pass the bare step list with `ad_hoc=<block>` instead of a whole document.
+
+This repository also mounts itself for oh-my-pi sessions via `.omp/mcp.json`, so the tools appear as
+`mcp__tui_test_launch_tui`, `mcp__tui_test_send_keys`, … See
+`skills/tui-test/references/mounting.md` for user-level mounts and the headless fallback.
+
 ## Available Tools
 
 ### `launch_tui`

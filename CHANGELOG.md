@@ -6,6 +6,35 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [Unreleased]
+
+### Added
+- **`run_scenario` tool**: lint and run a TUI scenario written as bare step calls (`launch`, `send`,
+  `expect`, `assert_text`, `line`, …). Parsed with `ast` and never executed — every argument must be
+  a literal, so the linted pipeline is exactly what runs. Returns a rendered report plus structured
+  fields (`ok`, `header`, `diagnostics`, `pipeline`, `results`, `choice`, `rescue_files`).
+- **`choice()` epilogue**: the last instruction may state which of several assertion outcomes are
+  true, e.g. `choice({"saved cleanly": expect("Wrote 1 line"), "still dirty": assert_text(" *")})`.
+  Every alternative is evaluated and every matching label is reported; if nothing matches, the step
+  fails so an unexplained screen cannot pass as a success.
+- **Markdown scenario documents**: `script=` accepts a document with a `name`/`description` header
+  and exactly one fenced python block (other fences are ignored, diagnostics point at the document's
+  own lines); `ad_hoc=` accepts a bare step list for iteration before the document exists.
+- **`launch_tui(env=...)`**: add or override child environment variables, so `TERM`/`LC_ALL` can be
+  pinned per launch instead of shell-prefixing the command.
+- **Agent skill** (`skills/tui-test/`) covering the scenario workflow (reusable documents, an
+  expectations-first walkthrough, a visual polish rubric, a findings review, `docs/guides/tui/INDEX.md`),
+  plus a project-scoped `.omp/mcp.json` mount for oh-my-pi sessions.
+
+### Fixed
+- **`launch_tui` terminal size**: out-of-range `dimensions` are rejected with a clear error instead of
+  failing deep inside pexpect, which could block the call for tens of seconds.
+- **Session cleanup**: a failed `launch` step no longer closes an attached session it did not create,
+  and two concurrent runs on one session id no longer raise.
+- **Polling overshoot**: `wait_for_stable` / `wait_for_change` no longer sleep past their deadline.
+- **`launch_tui` docstring**: documents that the command is exec'd without a shell, so shell
+  metacharacters are passed through literally (`sh -c '…'` when a shell is needed).
+
 ## [0.3.0] - 2026-06-19
 
 ### Added
