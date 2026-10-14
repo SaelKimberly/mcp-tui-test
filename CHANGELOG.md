@@ -6,6 +6,17 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.0.1] - 2026-10-14
+
+### Fixed
+- **Crash at import on a fresh install**: `from fastmcp.tools.tool import ToolResult` raised
+  `ModuleNotFoundError` as soon as the server started, because FastMCP 4 moved `ToolResult` into
+  `fastmcp.tools.base` (it is also re-exported from `fastmcp.tools`). `uvx mcp-tui-test` resolved
+  `fastmcp>=3.4.2` to 4.1.0 and died before serving a single request.
+- The dependency floor is now `fastmcp>=4.1.0` (a major bump), `uv.lock` is re-resolved against
+  fastmcp 4.1.0 / mcp 2.3.0, and the whole suite (272 tests) passes against it.
+
+
 ## [1.0.0] - 2026-10-14
 
 ### Added

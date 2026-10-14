@@ -4,12 +4,12 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "mcp-tui-test"
-version = "1.0.0"
+version = "1.0.1"
 description = "MCP server for testing Terminal User Interfaces - like Playwright for TUI applications"
 readme = "README.md"
 requires-python = ">=3.14"
 dependencies = [
-    "fastmcp>=3.4.2",
+    "fastmcp>=4.1.0",
     "pexpect>=4.9.0",
     "pillow>=10.0",
     "pyte>=0.8.2"

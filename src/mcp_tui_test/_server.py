@@ -21,7 +21,7 @@ import pexpect
 import pyte
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
-from fastmcp.tools.tool import ToolResult
+from fastmcp.tools.base import ToolResult
 from mcp.types import TextContent
 
 from mcp_tui_test._render import (

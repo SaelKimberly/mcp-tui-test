@@ -189,7 +189,7 @@ No linting, formatting, or type-checking commands in dev deps. Ruff config exist
 - **Runtime**: Python ≥3.14
 - **Package manager**: `uv` (uv sync, uv run, uv add, uv lock)
 - **Build backend**: setuptools (`setuptools>=61.0`)
-- **MCP framework**: FastMCP (`>=3.4.2`) — tools are registered via `@mcp.tool` decorator on sync functions
+- **MCP framework**: FastMCP (`>=4.1.0`) — tools are registered via `@mcp.tool` decorator on sync functions
 - **Process control**: pexpect (`>=4.9.0`)
 - **Terminal emulation**: pyte (`>=0.8.2`)
 - **Formatters/linters**: Ruff config (`[tool.ruff]`) in pyproject.toml, but ruff not in dev deps; can be run via `uvx ruff` or installed ad-hoc.
