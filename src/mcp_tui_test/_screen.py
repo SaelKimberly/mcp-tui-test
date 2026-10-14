@@ -100,7 +100,8 @@ def poll_until_stable(
         else:
             stable_count = 0
         last_text = text
-        time.sleep(interval)
+        # Never sleep past the deadline: a large interval used to overshoot the timeout entirely.
+        time.sleep(min(interval, max(0.0, deadline - time.monotonic())))
 
     raise TimeoutError(f"Screen did not stabilize within {timeout}s")
 
@@ -122,6 +123,6 @@ def poll_until_changed(
         text = model.text
         if screen_text_changed(reference, text):
             return text
-        time.sleep(interval)
+        time.sleep(min(interval, max(0.0, deadline - time.monotonic())))
 
     raise TimeoutError(f"Screen did not change from reference within {timeout}s")

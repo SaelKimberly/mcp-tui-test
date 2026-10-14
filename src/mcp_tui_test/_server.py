@@ -9,15 +9,32 @@ Supports two modes:
 
 import codecs
 import itertools
+import os
 import re
 import time
-from dataclasses import dataclass
+from collections.abc import Callable
+from dataclasses import asdict, dataclass
 
 import pexpect
 import pyte
 from fastmcp import FastMCP
 from fastmcp.exceptions import ToolError
+from fastmcp.tools.tool import ToolResult
+from mcp.types import TextContent
 
+from mcp_tui_test._scenario import (
+    Diagnostic,
+    Plan,
+    new_save_files,
+    one_line,
+    parse_document,
+    parse_script,
+    render_diagnostics,
+    render_execution,
+    render_pipeline,
+    rescue_dirs,
+    save_files,
+)
 from mcp_tui_test._screen import drain_buffer, strip_ansi
 
 # Initialize FastMCP server
@@ -192,6 +209,7 @@ def launch_tui(
     timeout: int = 30,
     dimensions: str | None = "80x24",
     mode: str = "buffer",
+    env: dict[str, str] | None = None,
 ) -> str:
     """Launch a TUI app in a subprocess for automated testing.
 
@@ -200,11 +218,16 @@ def launch_tui(
     **Stream mode**: line-by-line pexpect accumulators for CLI tools.
 
     Args:
-        command: Shell command to run (e.g. "python my_app.py")
+        command: Program and arguments to run (e.g. "python my_app.py"). It is exec'd directly,
+                 not through a shell, so `;`, `|`, `>` and `$(…)` reach the program as literal
+                 arguments — wrap it in `sh -c '…'` when you need shell semantics.
         session_id: Label for this session (default: "default")
         timeout: Kill subprocess after N seconds (default: 30)
         dimensions: Terminal size as WxH, e.g. "80x24" (default: "80x24")
         mode: "buffer" for full TUIs, "stream" for line-by-line CLI (default: "buffer")
+        env: Environment variables to add for the child process. Inherited values are kept, these
+             override them — use it to pin TERM or LC_ALL when the caller's environment would make a
+             full-screen app render garbage or localize its labels.
 
     Returns:
         Confirmation with session ID, command, dimensions, and mode
@@ -221,6 +244,13 @@ def launch_tui(
     else:
         width, height = 80, 24
 
+    # The terminal ioctl packs both axes as unsigned shorts; an out-of-range value raises deep inside
+    # pexpect and has been observed to block the call for tens of seconds before it does.
+    if not 1 <= width <= 65535 or not 1 <= height <= 65535:
+        raise ToolError(
+            f"Invalid dimensions: '{dimensions}'. Width and height must be between 1 and 65535.",
+        )
+
     # Auto-generate session ID if empty
     if not session_id:
         session_id = f"session_{next(_session_counter)}"
@@ -236,6 +266,7 @@ def launch_tui(
         timeout=timeout,
         dimensions=(height, width),
         encoding="utf-8",
+        env={**os.environ, **env} if env else None,
     )
 
     # Launch the TUI application session
@@ -805,6 +836,375 @@ def send_special_keys(
         session._update_buffer()
 
     return f"✓ Sent {len(keys)} special key(s) to session {session_id}"
+
+
+# ---------------------------------------------------------------------------
+# Scenario execution
+# ---------------------------------------------------------------------------
+
+PINNED_TERM = "xterm-256color"
+PINNED_LOCALE = "C"
+
+# Tools that take no session_id; every other handler receives the scenario's session.
+SESSIONLESS_TOOLS = frozenset({"list_sessions"})
+
+_SCENARIO_HANDLERS: dict[str, Callable[..., str]] = {
+    "launch_tui": launch_tui,
+    "send_keys": send_keys,
+    "send_ctrl": send_ctrl,
+    "send_special_keys": send_special_keys,
+    "expect_text": expect_text,
+    "assert_contains": assert_contains,
+    "assert_at_position": assert_at_position,
+    "get_line": get_line,
+    "get_screen_region": get_screen_region,
+    "get_char": get_char,
+    "get_cursor_position": get_cursor_position,
+    "capture_screen": capture_screen,
+    "wait_for_stable": wait_for_stable,
+    "wait_for_change": wait_for_change,
+    "get_session_info": get_session_info,
+    "list_sessions": list_sessions,
+    "close_session": close_session,
+}
+
+
+def _pinned_child_env(step_env: object, pin_env: bool) -> dict[str, str] | None:
+    """Environment additions for a launched child.
+
+    Walkthroughs have failed silently when the caller's TERM was `dumb` (garbled screen, still a `✓`)
+    or the host locale leaked into assertions, so a scenario pins sane values unless the step's own
+    `env=` overrides them.
+    """
+    pinned: dict[str, str] = {}
+    if pin_env:
+        if os.environ.get("TERM", "") in ("", "dumb"):
+            pinned["TERM"] = PINNED_TERM
+        pinned.update(dict.fromkeys(("LC_ALL", "LANG", "LANGUAGE"), PINNED_LOCALE))
+    if isinstance(step_env, dict):
+        pinned.update({str(key): str(value) for key, value in step_env.items()})
+    return pinned or None
+
+
+def _diagnostic_payload(diagnostics: list[Diagnostic]) -> list[dict]:
+    return [asdict(diagnostic) for diagnostic in diagnostics]
+
+
+def _header_line(plan) -> list[str]:
+    """Title a report with the document's own header, when it has one."""
+    fields = dict(plan.header)
+    if not fields:
+        return []
+    name = one_line(fields.get("name", ""))
+    description = one_line(fields.get("description", ""))
+    return [f"Scenario document: {name or '(unnamed)'} — {description}" if description else f"Scenario document: {name}"]
+
+
+def _run_choice(step, session_id: str) -> dict[str, object]:
+    """Evaluate every alternative of a choice() epilogue and collect the labels that matched.
+
+    An assertion that does not hold is a *no match*, not a failure: that is what makes the epilogue
+    able to report "error found" as a legitimate outcome. Every alternative is evaluated, so labels
+    that are true at the same time are all reported.
+    """
+    evaluated: list[dict] = []
+    matched: list[str] = []
+    for label, alternative in step.alternatives:
+        arguments: dict = dict(alternative.arguments)
+        if alternative.tool not in SESSIONLESS_TOOLS:
+            arguments["session_id"] = session_id
+        started = time.monotonic()
+        try:
+            text = str(_SCENARIO_HANDLERS[alternative.tool](**arguments))
+            status = "matched"
+            matched.append(label)
+        except ToolError as exc:
+            text, status = f"{exc}", "no match"
+        except Exception as exc:  # an unexpected error is not a mismatch; keep it visible
+            text, status = f"{type(exc).__name__}: {exc}", "error"
+        evaluated.append(
+            {
+                "label": label,
+                "step": alternative.name,
+                "tool": alternative.tool,
+                "status": status,
+                "elapsed_ms": round((time.monotonic() - started) * 1000),
+                "output": text,
+            }
+        )
+    return {"matched": matched, "evaluated": evaluated, "status": "ok" if matched else "no match"}
+
+
+@mcp.tool
+def run_scenario(
+    script: str | None = None,
+    ad_hoc: str | None = None,
+    session_id: str = "default",
+    dry_run: bool = False,
+    stop_on_error: bool = True,
+    keep_alive: bool | None = None,
+    pin_env: bool = True,
+) -> ToolResult:
+    r"""Parse, lint, and optionally execute a Python-like scenario.
+
+    Two mutually exclusive inputs:
+
+    - `script=` a **markdown scenario document**: a `---` header with `name` and `description` (plus
+      optional `app`, `tags`), prose, and **exactly one** ```python block holding the steps. Other
+      fenced blocks are documentation and are ignored; diagnostics point at the document's own lines.
+    - `ad_hoc=` raw step calls and nothing else — no header, no fences. For iterating before the
+      scenario is written down.
+
+    A scenario is a sequence of bare step calls::
+
+        launch("env TERM=xterm-256color LC_ALL=C nano notes.txt", mode="buffer", dimensions="120x40")
+        expect("GNU nano", timeout=5)
+        send("hello", delay=0.5)
+        assert_at("hello", row=1, col=0)
+        close()
+
+    It ends with an optional `choice()` epilogue — the last instruction, and the only place an
+    instruction may appear inside another call::
+
+        choice({
+            "saved cleanly": expect("Wrote 1 line", timeout=5),
+            "write failed": expect("Error writing", timeout=2),
+            "still dirty": assert_text(" *"),
+        })
+
+    Every alternative is evaluated in written order (so their waits add up) and every label that
+    matched is reported; if none matched the step fails, so an unexplained screen cannot pass as a
+    success. Allowed inside `choice()`: `expect`, `assert_text`, `assert_at`.
+
+    Steps map 1:1 onto the server's tools (`launch`→launch_tui, `send`→send_keys, `line`→get_line,
+    `key`→send_special_keys, …). The script source is parsed with `ast` and **never executed**: every
+    argument must be a literal, so the resolved pipeline is exactly what runs, and it can be replayed
+    verbatim. Anything else (assignments, imports, loops, f-strings, computed arguments) is a lint
+    error rather than a surprise at runtime.
+
+    Blast radius: the script is parsed, never executed — but a `launch` step runs an arbitrary
+    program as the server's user (exactly what `launch_tui` does) and a scenario is not sandboxed.
+    Treat a scenario document from an untrusted source the way you would treat a shell script.
+
+    Lint errors abort before anything is launched. Warnings are advisory — `send` keys containing
+    `\n` (raw-mode TUIs want `\r`), buffer-only reads on a stream-mode launch, a missing `close()`,
+    a `change()` reference copied from a framed capture.
+
+    Args:
+        script: Markdown scenario document (header + exactly one ```python block).
+        ad_hoc: Raw scenario source, parsed as-is (no header, no fences).
+        session_id: Session the steps run against. Applied to every step; `session_id` is not
+                    accepted inside the script, and it must not be empty (launch_tui auto-generates
+                    ids only when it is called directly).
+        dry_run: Lint and resolve the pipeline without touching a session.
+        stop_on_error: Stop at the first failing step instead of running the rest.
+        keep_alive: Leave the session running after the run. True never closes it; False closes it
+                    even when attaching (that is an explicit instruction); None — the default — closes
+                    only a session this call launched, so an attached session survives for a follow-up
+                    capture.
+        pin_env: Pin TERM/LC_ALL/LANG/LANGUAGE for launched children (a step's `env=` wins; set False
+                 when the scenario is about localization or inherited environment).
+
+    Returns:
+        ToolResult with a rendered report (caret diagnostics, resolved pipeline, transcript) as text
+        and the machine-readable fields in structured content: ok, action, diagnostics, pipeline,
+        results, session_alive, rescue_files.
+    """
+    attached = session_id in sessions
+    if (script is None) == (ad_hoc is None):
+        mode_problem = Diagnostic(
+            "error",
+            "E_INPUT_MODE",
+            1,
+            0,
+            "pass exactly one of script= (markdown document) or ad_hoc= (raw script)",
+            "script= expects a header plus one ```python block; ad_hoc= is the bare step list",
+        )
+        plan = Plan(diagnostics=(mode_problem,))
+    elif script is not None:
+        plan = parse_document(script, special_keys=frozenset(SPECIAL_KEYS))
+    else:
+        plan = parse_script(ad_hoc or "", special_keys=frozenset(SPECIAL_KEYS))
+    document = script if script is not None else (ad_hoc or "")
+
+    diagnostics = list(plan.diagnostics)
+    if not session_id:
+        diagnostics.append(
+            Diagnostic(
+                "error",
+                "E_BAD_SESSION_ID",
+                1,
+                0,
+                "session_id must not be empty",
+                "pass the scenario's label, or omit the argument to use 'default'; launch_tui only "
+                "auto-generates ids when it is called directly",
+            )
+        )
+    if (
+        not plan.errors
+        and not any(diagnostic.is_error for diagnostic in diagnostics)
+        and not dry_run
+        and not attached
+        and not plan.launches
+    ):
+        diagnostics.append(
+            Diagnostic(
+                "error",
+                "E_NO_SESSION",
+                1,
+                0,
+                f"no live session '{one_line(session_id)}' and the script has no launch() step",
+                "inspect list_sessions() or add launch(...) as the first step",
+            )
+        )
+    diagnostics.sort(key=lambda diagnostic: (diagnostic.line, diagnostic.col, diagnostic.code))
+    errors = [diagnostic for diagnostic in diagnostics if diagnostic.is_error]
+
+    if dry_run or errors:
+        action = "linted" if errors else "dry_run"
+        sections = _header_line(plan) + []
+        if diagnostics:
+            sections.append(render_diagnostics(diagnostics, document))
+        if plan.steps:
+            sections.append("Resolved pipeline:\n" + render_pipeline(plan.steps))
+        if errors:
+            sections.append(f"Nothing was launched: {len(errors)} lint error(s).")
+        else:
+            sections.append("Dry run: nothing was launched and no session was touched.")
+        payload = {
+            "ok": not errors,
+            "action": action,
+            "session_id": session_id,
+            "attached": attached,
+            # Nothing ran, so nothing was kept alive: the session is simply untouched.
+            "kept_alive": False,
+            "header": dict(plan.header),
+            "diagnostics": _diagnostic_payload(diagnostics),
+            "pipeline": plan.payload(),
+            "results": [],
+            "session_alive": attached,
+            "rescue_files": [],
+            "choice": None,
+        }
+        return ToolResult(content=[TextContent(type="text", text="\n\n".join(sections))], structured_content=payload)
+
+    keep_open = attached if keep_alive is None else keep_alive
+    results: list[dict] = []
+    step_errors = 0
+    choice_verdict: dict[str, object] | None = None
+    owned = False  # set only once a launch step actually created or replaced the session
+    # Snapshot rescue-file state before the run: file mtimes can lag the wall clock by a tick, so a
+    # timestamp comparison is not a reliable "was this written during the run?" test. An attached
+    # session contributes its own launch command, otherwise a script that only reads would never
+    # watch the fixture it is about to modify.
+    watched_commands = [str(step.arguments.get("command", "")) for step in plan.steps if step.tool == "launch_tui"]
+    if attached:
+        watched_commands.append(sessions[session_id].command)
+    watch_dirs = rescue_dirs(watched_commands, set())
+    saves_before = save_files(watch_dirs)
+
+    try:
+        for index, step in enumerate(plan.steps, start=1):
+            arguments: dict = dict(step.arguments)
+            if step.tool == "launch_tui":
+                arguments["env"] = _pinned_child_env(arguments.get("env"), pin_env)
+                arguments["session_id"] = session_id
+            elif step.tool not in SESSIONLESS_TOOLS:
+                arguments["session_id"] = session_id
+            if step.tool == "choice":
+                choice_verdict = _run_choice(step, session_id)
+                matched = [str(label) for label in choice_verdict["matched"]]
+                status = "ok" if matched else "error"
+                output = (
+                    "matched: " + ", ".join(repr(one_line(label)) for label in matched)
+                    if matched
+                    else "no alternative matched"
+                )
+                if status == "error":
+                    step_errors += 1
+                results.append(
+                    {
+                        "n": index,
+                        "step": step.name,
+                        "tool": step.tool,
+                        "status": status,
+                        "elapsed_ms": sum(int(record["elapsed_ms"]) for record in choice_verdict["evaluated"]),
+                        "output": output,
+                        "choice": choice_verdict,
+                    }
+                )
+                if status == "error" and stop_on_error:
+                    break
+                continue
+            step_started = time.monotonic()
+            try:
+                output = str(_SCENARIO_HANDLERS[step.tool](**arguments))
+                status = "ok"
+                if step.tool == "launch_tui":
+                    owned = True  # the session now belongs to this call
+            except ToolError as exc:
+                output, status = f"ToolError: {exc}", "error"
+            except Exception as exc:  # unexpected failures are recorded, not propagated
+                output, status = f"{type(exc).__name__}: {exc}", "error"
+            if status == "error":
+                step_errors += 1
+            results.append(
+                {
+                    "n": index,
+                    "step": step.name,
+                    "tool": step.tool,
+                    "status": status,
+                    "elapsed_ms": round((time.monotonic() - step_started) * 1000),
+                    "output": output,
+                }
+            )
+            if status == "error" and stop_on_error:
+                break
+    finally:
+        # Close only what this call is responsible for: a session it launched, or — when keep_alive is
+        # explicitly False — one it actually drove steps through. A failed launch must never kill an
+        # attached session this call did not create, and pop() keeps concurrent runs from racing on
+        # `del sessions[...]`.
+        drove_steps = any(record["status"] == "ok" for record in results)
+        if not keep_open and session_id in sessions and (owned or drove_steps):
+            session = sessions.pop(session_id, None)
+            if session is not None:
+                try:
+                    session.close()
+                except Exception:  # teardown must not mask the run result
+                    pass
+
+    rescues = new_save_files(watch_dirs, saves_before)
+    session_alive = session_id in sessions
+    payload = {
+        "ok": step_errors == 0,
+        "action": "executed",
+        "session_id": session_id,
+        "attached": attached,
+        "kept_alive": keep_open and session_alive,
+        "header": dict(plan.header),
+        "diagnostics": _diagnostic_payload(diagnostics),
+        "pipeline": plan.payload(),
+        "results": results,
+        "session_alive": session_alive,
+        "rescue_files": rescues,
+        "choice": choice_verdict,
+    }
+    sections = _header_line(plan)
+    if diagnostics:
+        sections.append(render_diagnostics(diagnostics, document))
+    sections.append(
+        render_execution(
+            action="executed" + (" (session kept alive)" if payload["kept_alive"] else ""),
+            session_id=session_id,
+            attached=attached,
+            session_alive=session_alive,
+            results=results,
+            rescues=rescues,
+            errors=step_errors,
+        )
+    )
+    return ToolResult(content=[TextContent(type="text", text="\n\n".join(sections))], structured_content=payload)
 
 
 if __name__ == "__main__":
