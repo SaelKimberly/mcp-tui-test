@@ -31,7 +31,7 @@ from pathlib import Path
 CHOICE_STEPS = frozenset({"expect", "assert_text", "assert_at"})
 
 # Reads that only make sense with pyte's screen buffer behind them.
-BUFFER_ONLY_STEPS = frozenset({"line", "region", "char", "cursor", "assert_at"})
+BUFFER_ONLY_STEPS = frozenset({"line", "region", "char", "style", "cursor", "assert_at", "shot"})
 
 FALLBACK_SPECIAL_KEYS = frozenset(
     {
@@ -143,6 +143,11 @@ STEP_SPECS: dict[str, StepSpec] = {
         summary="Read a single cell — the only exact column-width check.",
         positional=(_p("row", int), _p("col", int)),
     ),
+    "style": StepSpec(
+        tool="get_cell_style",
+        summary="Read one cell's colour and attributes (fg/bg, bold, reverse, italic, underline, strike).",
+        positional=(_p("row", int), _p("col", int)),
+    ),
     "cursor": StepSpec(
         tool="get_cursor_position",
         summary="Read the cursor position.",
@@ -173,6 +178,31 @@ STEP_SPECS: dict[str, StepSpec] = {
     "info": StepSpec(tool="get_session_info", summary="Session metadata (command, mode, PID, uptime)."),
     "sessions": StepSpec(tool="list_sessions", summary="List active sessions."),
     "close": StepSpec(tool="close_session", summary="Kill the child and drop the session."),
+    "shot": StepSpec(
+        tool="screenshot",
+        summary="Save a PNG of the current screen — the only witness of colour, contrast and the cursor.",
+        keyword=(
+            _p("path", str, "where to write the PNG (default: a temp file)"),
+            _p("font_size", int, "font size in points, 4-96", "14"),
+            _p("cursor", bool, "paint the cursor as an inverted block", "True"),
+        ),
+    ),
+    "gif": StepSpec(
+        tool="gif",
+        summary="Stitch screenshot PNGs into an animated GIF (needs at least two frames).",
+        variadic=_p("frames", str, "one or more PNG paths, in play order"),
+        keyword=(
+            _p("path", str, "where to write the GIF (default: a temp file)"),
+            _p("duration_ms", int, "milliseconds each frame is shown", "500"),
+            _p("loop", int, "0 loops forever, N plays N+1 times", "0"),
+        ),
+    ),
+    "resize": StepSpec(
+        tool="resize",
+        summary="Resize the terminal mid-session (SIGWINCH) to reach a responsive layout.",
+        positional=(_p("dimensions", str, "new size as WxH, e.g. '80x20'"),),
+        keyword=(_p("delay", float, "seconds to wait for the repaint", "0.3"),),
+    ),
 }
 
 _TOOL_TO_STEP = {spec.tool: name for name, spec in STEP_SPECS.items()}
@@ -636,7 +666,23 @@ class _Validator:
             if spec.variadic is not None and index >= len(positional):
                 supplied.add(spec.variadic.name)
                 ok, value = self._literal(node, name, spec.variadic)
-                if ok and self._check_type(node, name, spec.variadic, value):
+                if ok and isinstance(value, list):
+                    # A list literal is accepted positionally, exactly as it is by keyword, so
+                    # `key(["up", "down"])` and `gif(["/a.png", "/b.png"])` do not need keywords.
+                    values = list(value)
+                    if not values:
+                        self.error(
+                            "E_ARG_MISSING",
+                            node,
+                            f"{name}() needs at least one {spec.variadic.name}",
+                            f"usage: {self._usage(name, spec)}",
+                        )
+                        ok = False
+                    elif not all(self._check_type(node, name, spec.variadic, item) for item in values):
+                        ok = False
+                    else:
+                        arguments.setdefault(spec.variadic.name, []).extend(values)
+                elif ok and self._check_type(node, name, spec.variadic, value):
                     arguments.setdefault(spec.variadic.name, []).append(value)
                 else:
                     fine = False

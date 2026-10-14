@@ -11,9 +11,11 @@ import codecs
 import itertools
 import os
 import re
+import tempfile
 import time
 from collections.abc import Callable
 from dataclasses import asdict, dataclass
+from pathlib import Path
 
 import pexpect
 import pyte
@@ -22,6 +24,13 @@ from fastmcp.exceptions import ToolError
 from fastmcp.tools.tool import ToolResult
 from mcp.types import TextContent
 
+from mcp_tui_test._render import (
+    FONT_SIZE_MAX,
+    FONT_SIZE_MIN,
+    describe_screen_attributes,
+    frames_to_gif,
+    render_screen_png,
+)
 from mcp_tui_test._scenario import (
     Diagnostic,
     Plan,
@@ -35,7 +44,7 @@ from mcp_tui_test._scenario import (
     rescue_dirs,
     save_files,
 )
-from mcp_tui_test._screen import drain_buffer, strip_ansi
+from mcp_tui_test._screen import drain_buffer, screen_lines, strip_ansi
 
 # Initialize FastMCP server
 mcp = FastMCP("tui-test")
@@ -85,10 +94,12 @@ class ScreenSession:
         process,  # duck-typed: .send(), .read_nonblocking(), .expect(), .before, .close()
         dimensions: tuple[int, int],
         mode: str = "stream",
+        session_id: str = "",
     ):
         self.process = process
         self.mode = mode
         self.dimensions = dimensions
+        self.session_id = session_id
         self.launch_time: float = time.time()
         self.command: str = ""
         self._last_preview: str = ""
@@ -108,8 +119,53 @@ class ScreenSession:
         if self.mode == "buffer":
             drain_buffer(self.process, self.screen, self.stream)
 
+    def assert_alive(self) -> None:
+        """Raise ToolError when the child process has exited.
+
+        Only meaningful where a stale state would be *believed*: a full-screen
+        app that died leaves its last frame in the pyte grid, and answering `✓`
+        from it lets a walkthrough pass against a dead app. A **stream**-mode
+        session is different — its accumulated pexpect output is a record, and
+        reading it after a finite command (`git status`, `echo`) exits is the
+        reason stream mode exists — so reads there are not guarded; writes are.
+
+        The pexpect-style duck type is checked, so a test double without
+        `isalive` is treated as alive.
+        """
+        isalive = getattr(self.process, "isalive", None)
+        if not callable(isalive) or isalive():
+            return
+        signal = getattr(self.process, "signalstatus", None)
+        status = getattr(self.process, "exitstatus", None)
+        if signal:
+            why = f"was killed by signal {signal}"
+        elif status is not None:
+            why = f"exited with status {status}"
+        else:
+            why = "has exited"
+        raise ToolError(
+            f"Session '{self.session_id or '?'}' {why}; the screen is frozen and keystrokes are not "
+            "delivered. Capture the frame before the keystroke that quits, re-launch, or read the "
+            "app's own log to find out why it died.",
+        )
+
+    def resize(self, width: int, height: int, delay: float = 0.3) -> None:
+        """Resize the pseudo-terminal and the emulated screen.
+
+        The kernel sends SIGWINCH to the child when the pty size changes, which
+        is how a TUI learns to re-layout. Applies to both modes; only buffer
+        mode has a screen buffer to resize.
+        """
+        self.process.setwinsize(height, width)
+        self.dimensions = (width, height)
+        time.sleep(delay)
+        if self.mode == "buffer":
+            self.screen.resize(height, width)
+            self._update_buffer()
+
     def send(self, keys: str, delay: float = 0.3):
         """Send keys to the process and wait for them to be processed."""
+        self.assert_alive()
         self.process.send(keys)
         time.sleep(delay)
         if self.mode == "buffer":
@@ -118,14 +174,20 @@ class ScreenSession:
     def capture(self, preserve_format: bool = False) -> ScreenModel:
         """Return a snapshot of the current terminal state.
 
+        A dead child is reported for a buffer-mode session (its grid is stale);
+        a stream session still returns the accumulated output, which is what a
+        finished CLI command leaves behind.
+
         Args:
             preserve_format: If True, keep trailing whitespace and ANSI codes
                              for an accurate picture of the terminal layout.
 
         """
         if self.mode == "buffer":
+            self.assert_alive()
             self._update_buffer()
-            lines = tuple(line if preserve_format else line.rstrip() for line in self.screen.display)
+            rendered = screen_lines(self.screen)
+            lines = tuple(rendered if preserve_format else [line.rstrip() for line in rendered])
             # Store preview for list_sessions
             non_empty = [l for l in lines if l.strip()]
             self._last_preview = (non_empty[0][:80] if non_empty else "")[:80]
@@ -169,6 +231,8 @@ class ScreenSession:
 # Store active TUI sessions
 # Auto-incrementing counter for auto-generated session IDs
 _session_counter = itertools.count(1)
+# Keeps two screenshots taken in the same second from overwriting each other.
+_artifact_counter = itertools.count(1)
 sessions: dict[str, ScreenSession] = {}
 
 
@@ -200,6 +264,33 @@ SPECIAL_KEYS: dict[str, str] = {
     "f11": "\x1b[23~",
     "f12": "\x1b[24~",
 }
+
+
+def _parse_dimensions(dimensions: str) -> tuple[int, int]:
+    """Parse a `WxH` terminal size, or raise ToolError explaining the format.
+
+    The terminal ioctl packs both axes as unsigned shorts; an out-of-range value
+    raises deep inside pexpect and has been observed to block the call for tens
+    of seconds before it does, so the range is checked here.
+    """
+    try:
+        width, height = map(int, dimensions.split("x"))
+    except (ValueError, AttributeError):
+        raise ToolError(
+            f"Invalid dimensions format: '{dimensions}'. Expected format like '80x24' (WxH).",
+        )
+    if not 1 <= width <= 65535 or not 1 <= height <= 65535:
+        raise ToolError(
+            f"Invalid dimensions: '{dimensions}'. Width and height must be between 1 and 65535.",
+        )
+    return width, height
+
+
+def _default_artifact_path(session_id: str, suffix: str) -> Path:
+    """A collision-free path under the system temp dir for a screenshot or GIF."""
+    safe = re.sub(r"[^A-Za-z0-9_.-]+", "-", session_id).strip("-") or "session"
+    stamp = time.strftime("%Y%m%d-%H%M%S")
+    return Path(tempfile.gettempdir()) / "mcp-tui-test" / f"{safe}-{stamp}-{next(_artifact_counter)}.{suffix}"
 
 
 @mcp.tool
@@ -234,22 +325,7 @@ def launch_tui(
 
     """
     # Parse dimensions
-    if dimensions:
-        try:
-            width, height = map(int, dimensions.split("x"))
-        except ValueError, AttributeError:
-            raise ToolError(
-                f"Invalid dimensions format: '{dimensions}'. Expected format like '80x24' (WxH).",
-            )
-    else:
-        width, height = 80, 24
-
-    # The terminal ioctl packs both axes as unsigned shorts; an out-of-range value raises deep inside
-    # pexpect and has been observed to block the call for tens of seconds before it does.
-    if not 1 <= width <= 65535 or not 1 <= height <= 65535:
-        raise ToolError(
-            f"Invalid dimensions: '{dimensions}'. Width and height must be between 1 and 65535.",
-        )
+    width, height = _parse_dimensions(dimensions) if dimensions else (80, 24)
 
     # Auto-generate session ID if empty
     if not session_id:
@@ -270,7 +346,7 @@ def launch_tui(
     )
 
     # Launch the TUI application session
-    session = ScreenSession(process=process, dimensions=(width, height), mode=mode)
+    session = ScreenSession(process=process, dimensions=(width, height), mode=mode, session_id=session_id)
     session.command = command
 
     sessions[session_id] = session
@@ -314,6 +390,7 @@ def send_keys(
     # Enforce minimum delay so the app has time to process input
     delay = max(delay, 0.1)
     session = require_session(session_id)
+    session.assert_alive()
     # Decode Python escape sequences (\x1b, \n, \t, etc.)
     decoded_keys = codecs.decode(keys, "unicode_escape")
     if inter_key_delay > 0:
@@ -396,8 +473,9 @@ def expect_text(pattern: str, session_id: str = "default", timeout: int = 10) ->
         compiled = re.compile(pattern)
         deadline = time.monotonic() + timeout
         while time.monotonic() < deadline:
+            session.assert_alive()
             session._update_buffer()
-            display = session.screen.display
+            display = screen_lines(session.screen)
             if any(compiled.search(line) for line in display):
                 return f"✓ Found expected text: '{pattern}'"
             time.sleep(0.1)
@@ -694,6 +772,10 @@ def get_char(
     Useful for character-level inspection of ratatui box-drawing or
     text alignment. Returns a space if the position is out of bounds.
 
+    Columns are cell columns: a wide glyph (emoji flag, CJK) occupies its own
+    column and a filler space occupies the next one, so the column of every
+    character to its right is still the column the terminal used.
+
     Args:
         row: 0-indexed row number
         col: 0-indexed column number
@@ -712,6 +794,157 @@ def get_char(
         return " "
     ch = line[col]
     return f"Character at ({row}, {col}): '{ch}'"
+
+
+@mcp.tool
+def screenshot(
+    path: str | None = None,
+    session_id: str = "default",
+    font_size: int = 14,
+    cursor: bool = True,
+) -> str:
+    """Save a pixel screenshot of the current screen as a PNG (buffer mode only).
+
+    The text tools describe what the screen *says*; this is the only witness of
+    what it *looks like* — colour, contrast, colour-only state (a dimmed/disabled
+    row, a selection highlight) and the cursor. It draws the same pyte cell grid
+    the text reads use, so the picture and the transcript cannot disagree.
+
+    Read the written file with your image/view tool; use it before judging a
+    palette, a "disabled" cue, or any state that the text alone cannot show.
+
+    Args:
+        path: Where to write the PNG. Defaults to a timestamped file under the
+              system temp directory (`mcp-tui-test/<session>-<timestamp>.png`).
+        session_id: Session identifier (default: "default")
+        font_size: Font size in points, 4–96 (default: 14)
+        cursor: Paint the cursor as an inverted block (default: True) — the only
+                visual witness of which field has focus.
+
+    Returns:
+        Confirmation with the absolute PNG path and its pixel size
+
+    Raises:
+        ToolError: Stream-mode session, bad font size, or the child has exited
+
+    """
+    session = require_session(session_id)
+    if session.mode != "buffer":
+        raise ToolError(
+            "screenshot needs buffer mode: a stream-mode session has no cell grid to draw. "
+            "Re-launch with mode='buffer'.",
+        )
+    if not FONT_SIZE_MIN <= font_size <= FONT_SIZE_MAX:
+        raise ToolError(f"font_size must be between {FONT_SIZE_MIN} and {FONT_SIZE_MAX}, got {font_size}.")
+    model = session.capture(preserve_format=True)
+    target = Path(path) if path else _default_artifact_path(session_id, "png")
+    try:
+        written = render_screen_png(
+            session.screen,
+            target,
+            font_size=font_size,
+            show_cursor=cursor,
+        )
+    except RuntimeError as exc:
+        raise ToolError(str(exc))
+    chars = f"{model.width}x{model.height} cells, font {font_size}pt"
+    palette = describe_screen_attributes(session.screen)
+    return f"✓ Screenshot saved: {Path(written).resolve()}\n{chars}, {palette}"
+
+
+@mcp.tool
+def gif(
+    frames: list[str],
+    path: str | None = None,
+    duration_ms: int = 500,
+    loop: int = 0,
+) -> str:
+    """Stitch PNG screenshots into an animated GIF ("movie" of a session).
+
+    Take the frames with `screenshot(path=…)`, then pass their paths here. Frame
+    order is the order you list them. Frames are resized onto the first frame's
+    canvas, so a session that changed size mid-run still animates.
+
+    Args:
+        frames: Two or more PNG paths, in play order (from `screenshot`)
+        path: Where to write the GIF. Defaults to a timestamped file under the
+              system temp directory.
+        duration_ms: Milliseconds each frame is shown (default: 500, minimum 1)
+        loop: 0 loops forever, N plays N+1 times (default: 0)
+
+    Returns:
+        Confirmation with the absolute GIF path
+
+    Raises:
+        ToolError: Fewer than two frames, a missing frame file, or a bad duration
+
+    """
+    if len(frames) < 2:
+        raise ToolError(f"gif needs at least 2 frames, got {len(frames)}; take them with screenshot().")
+    if duration_ms < 1:
+        raise ToolError(f"duration_ms must be >= 1, got {duration_ms}.")
+    missing = [frame for frame in frames if not Path(frame).is_file()]
+    if missing:
+        raise ToolError(f"frame file(s) not found: {', '.join(missing)}")
+    target = Path(path) if path else _default_artifact_path("session", "gif")
+    try:
+        written = frames_to_gif(frames, target, duration_ms=duration_ms, loop=loop)
+    except RuntimeError as exc:
+        raise ToolError(str(exc))
+    except ValueError as exc:
+        raise ToolError(str(exc))
+    return f"✓ GIF saved: {Path(written).resolve()}\n{len(frames)} frames @ {duration_ms}ms"
+
+
+@mcp.tool
+def get_cell_style(
+    row: int,
+    col: int,
+    session_id: str = "default",
+) -> str:
+    """Read one cell's colour and text attributes (buffer mode only).
+
+    The text tools answer *what* the screen says; this answers *how* it says it —
+    the per-cell fg/bg plus bold, reverse, italic, underline, strike and blink.
+    Use it to make a colour-only claim assertable in text form (a red failure
+    marker, a dimmed/disabled row, a selection highlight) instead of eyeballing a
+    screenshot.
+
+    Colours are pyte's own encoding: a 16-colour name (`red`, `brightgreen`), a
+    6-digit hex string for a 256-colour or true-colour value (`ff0000`), or
+    `default` when the app set none.
+
+    Args:
+        row: 0-indexed row number
+        col: 0-indexed column number
+        session_id: Session identifier (default: "default")
+
+    Returns:
+        The cell's character and attributes; out-of-bounds reads return defaults
+
+    Raises:
+        ToolError: Stream-mode session (no cell grid), or the child has exited
+
+    """
+    session = require_session(session_id)
+    if session.mode != "buffer":
+        raise ToolError(
+            "get_cell_style needs buffer mode: a stream-mode session has no cell grid. "
+            "Re-launch with mode='buffer'.",
+        )
+    model = session.capture(preserve_format=True)
+    if row >= len(model.lines) or col >= model.width:
+        return f"Style at ({row}, {col}) (session: {session_id}): char=' ' fg=default bg=default (out of bounds)"
+
+    cell = session.screen.buffer[row][col]
+    char = cell.data or " "
+    return (
+        f"Style at ({row}, {col}) (session: {session_id}): char={char!r} "
+        f"fg={cell.fg or 'default'} bg={cell.bg or 'default'} "
+        f"bold={'yes' if cell.bold else 'no'} reverse={'yes' if cell.reverse else 'no'} "
+        f"italic={'yes' if cell.italics else 'no'} underline={'yes' if cell.underscore else 'no'} "
+        f"strike={'yes' if cell.strikethrough else 'no'} blink={'yes' if cell.blink else 'no'}"
+    )
 
 
 @mcp.tool
@@ -824,6 +1057,7 @@ def send_special_keys(
     """
     delay = max(delay, 0.1)
     session = require_session(session_id)
+    session.assert_alive()
     unknown = [k for k in keys if k not in SPECIAL_KEYS]
     if unknown:
         valid = ", ".join(sorted(SPECIAL_KEYS))
@@ -838,6 +1072,38 @@ def send_special_keys(
     return f"✓ Sent {len(keys)} special key(s) to session {session_id}"
 
 
+@mcp.tool
+def resize(
+    dimensions: str,
+    session_id: str = "default",
+    delay: float = 0.3,
+) -> str:
+    """Resize a live session's terminal, and let the app re-layout.
+
+    Sets the pseudo-terminal size, so the kernel delivers SIGWINCH to the child
+    (that is how a TUI learns to re-layout) and the emulated screen follows.
+    The responsiveness path that only a resize reaches — a layout that switches
+    below N rows/columns — cannot be driven any other way in a headless run.
+
+    Args:
+        dimensions: New terminal size as WxH, e.g. "80x20"
+        session_id: Session identifier (default: "default")
+        delay: Seconds to wait for the repaint after the resize (default: 0.3)
+
+    Returns:
+        Confirmation with the new size
+
+    Raises:
+        ToolError: Bad dimensions, or the session's child has exited
+
+    """
+    session = require_session(session_id)
+    width, height = _parse_dimensions(dimensions)
+    session.assert_alive()
+    session.resize(width, height, delay=max(delay, 0.0))
+    return f"✓ Resized session {session_id} to {width}x{height}"
+
+
 # ---------------------------------------------------------------------------
 # Scenario execution
 # ---------------------------------------------------------------------------
@@ -846,7 +1112,7 @@ PINNED_TERM = "xterm-256color"
 PINNED_LOCALE = "C"
 
 # Tools that take no session_id; every other handler receives the scenario's session.
-SESSIONLESS_TOOLS = frozenset({"list_sessions"})
+SESSIONLESS_TOOLS = frozenset({"list_sessions", "gif"})
 
 _SCENARIO_HANDLERS: dict[str, Callable[..., str]] = {
     "launch_tui": launch_tui,
@@ -859,6 +1125,7 @@ _SCENARIO_HANDLERS: dict[str, Callable[..., str]] = {
     "get_line": get_line,
     "get_screen_region": get_screen_region,
     "get_char": get_char,
+    "get_cell_style": get_cell_style,
     "get_cursor_position": get_cursor_position,
     "capture_screen": capture_screen,
     "wait_for_stable": wait_for_stable,
@@ -866,8 +1133,10 @@ _SCENARIO_HANDLERS: dict[str, Callable[..., str]] = {
     "get_session_info": get_session_info,
     "list_sessions": list_sessions,
     "close_session": close_session,
+    "screenshot": screenshot,
+    "gif": gif,
+    "resize": resize,
 }
-
 
 def _pinned_child_env(step_env: object, pin_env: bool) -> dict[str, str] | None:
     """Environment additions for a launched child.

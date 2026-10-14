@@ -238,8 +238,8 @@ class TestSemantics:
 
     def test_every_step_maps_to_a_real_tool(self):
         tools = {spec.tool for spec in STEP_SPECS.values()}
-        assert len(tools) == 17
-        assert "launch_tui" in tools and "close_session" in tools
+        assert len(tools) == 21
+        assert {"launch_tui", "close_session", "screenshot", "gif", "resize", "get_cell_style"} <= tools
 
 
 class TestRendering:
@@ -596,3 +596,99 @@ class TestChoiceEpilogue:
         )
         assert not any(entry.startswith("✓") for entry in line.splitlines())
         assert r"\x0a" in line
+
+
+class TestVisualAndResizeSteps:
+    """shot/gif/resize step vocabulary (visual capture and live resize)."""
+
+    def test_shot_resolves_to_screenshot(self):
+        plan = parse_script('launch("cat", mode="buffer")\nshot(path="/tmp/a.png")\nclose()')
+        assert plan.ok, messages(plan)
+        step = plan.steps[1]
+        assert step.name == "shot"
+        assert step.tool == "screenshot"
+        assert step.arguments == {"path": "/tmp/a.png"}
+
+    def test_shot_defaults_are_lintable(self):
+        plan = parse_script('launch("cat", mode="buffer")\nshot()\nclose()')
+        assert plan.ok, messages(plan)
+
+    def test_shot_on_stream_mode_warns(self):
+        plan = parse_script('launch("cat", mode="stream")\nshot()\nclose()')
+        assert "W_STREAM_MODE_READ" in codes(plan)
+
+    def test_gif_takes_frames_positionally(self):
+        plan = parse_script('gif("/tmp/a.png", "/tmp/b.png", path="/tmp/m.gif")\nclose()')
+        assert plan.ok, messages(plan)
+        step = plan.steps[0]
+        assert step.tool == "gif"
+        assert step.arguments["frames"] == ["/tmp/a.png", "/tmp/b.png"]
+        assert step.arguments["path"] == "/tmp/m.gif"
+
+    def test_gif_accepts_a_frames_keyword(self):
+        plan = parse_script('gif(frames=["/tmp/a.png", "/tmp/b.png"])\nclose()')
+        assert plan.ok, messages(plan)
+        assert plan.steps[0].arguments["frames"] == ["/tmp/a.png", "/tmp/b.png"]
+
+    def test_gif_accepts_a_frames_list_positionally(self):
+        """A list literal is accepted positionally, as it is by keyword."""
+        plan = parse_script('gif(["/tmp/a.png", "/tmp/b.png"], path="/tmp/m.gif")\nclose()')
+        assert plan.ok, messages(plan)
+        assert plan.steps[0].arguments["frames"] == ["/tmp/a.png", "/tmp/b.png"]
+
+    def test_empty_list_variadic_is_rejected(self):
+        plan = parse_script("gif([])\nclose()")
+        assert "E_ARG_MISSING" in codes(plan)
+
+    def test_key_accepts_a_list_positionally(self):
+        plan = parse_script('key(["down", "enter"])\nclose()')
+        assert plan.ok, messages(plan)
+        assert plan.steps[0].arguments["keys"] == ["down", "enter"]
+
+    def test_gif_frames_is_required(self):
+        plan = parse_script("gif()\nclose()")
+        assert "E_ARG_MISSING" in codes(plan)
+
+    def test_gif_frames_must_be_strings(self):
+        plan = parse_script("gif(1, 2)\nclose()")
+        assert "E_ARG_TYPE" in codes(plan)
+
+    def test_resize_resolves_to_the_resize_tool(self):
+        plan = parse_script('launch("cat", mode="buffer")\nresize("80x20")\nline(0)\nclose()')
+        assert plan.ok, messages(plan)
+        step = plan.steps[1]
+        assert step.name == "resize"
+        assert step.tool == "resize"
+        assert step.arguments == {"dimensions": "80x20"}
+
+    def test_resize_requires_dimensions(self):
+        plan = parse_script("resize()\nclose()")
+        assert "E_ARG_MISSING" in codes(plan)
+
+    def test_resize_rejects_a_session_argument(self):
+        plan = parse_script('resize("80x20", session_id="x")\nclose()')
+        assert "E_SESSION_ARG" in codes(plan)
+
+
+class TestStyleStep:
+    """The `style` step exposes per-cell colour/attributes to a scenario."""
+
+    def test_style_resolves_to_get_cell_style(self):
+        plan = parse_script('launch("cat", mode="buffer")\nstyle(3, 7)\nclose()')
+        assert plan.ok, messages(plan)
+        step = plan.steps[1]
+        assert step.name == "style"
+        assert step.tool == "get_cell_style"
+        assert step.arguments == {"row": 3, "col": 7}
+
+    def test_style_requires_both_coordinates(self):
+        plan = parse_script("style(1)\nclose()")
+        assert "E_ARG_MISSING" in codes(plan)
+
+    def test_style_on_stream_mode_warns(self):
+        plan = parse_script('launch("cat", mode="stream")\nstyle(0, 0)\nclose()')
+        assert "W_STREAM_MODE_READ" in codes(plan)
+
+    def test_style_rejects_negative_coordinates(self):
+        plan = parse_script('style(-1, 0)\nclose()')
+        assert "E_NEGATIVE_POSITION" in codes(plan)

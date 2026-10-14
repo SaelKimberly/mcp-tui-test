@@ -7,6 +7,20 @@ what you can evidence with a coordinate or a verbatim excerpt.
 Useful reads while doing this: `capture_screen` for the whole frame, `get_screen_region` for the panel
 under review, `get_char` when you need to prove an exact column, `get_line` for single-row chrome.
 
+**Colour, contrast and focus need a picture — and a style read.** `style(row, col)` gives the exact
+fg/bg and text attributes of a cell in text form, so an attribute claim is assertable in the
+scenario (`fg=red`, `bg=green`, `underline=yes`, `reverse=yes`). `shot(path=…)` is what shows
+*contrast* — whether red-on-dark is actually readable — so take one, look at it, and cite its path
+next to the remark. The cursor is painted inverted, so focus questions are answerable the same way.
+A before/after pair (or `gif(frames=[…])`) is the evidence for anything that changes over time.
+Screenshots honour the cell's bold, italic, reverse, underline and strikethrough, and paint colour
+emoji from the colour-emoji font when one is installed. Set `MCP_TUI_TEST_FG`/`MCP_TUI_TEST_BG` for a
+light-theme canvas, and `MCP_TUI_TEST_FONT` to override the font (a Nerd Font is preferred).
+
+Read the note that `screenshot` returns with the path. If it says `no colour`, the app emits no colour
+at all — that is itself a finding (a themed app whose UI never uses its palette), and every
+colour-based category below is untestable on that screen; say so instead of inventing a colour claim.
+
 ## Categories
 
 ### Layout and geometry
@@ -53,6 +67,9 @@ under review, `get_char` when you need to prove an exact column, `get_line` for 
 - At 80x24 — and at the narrowest size the app claims to support — nothing overlaps, nothing is
   unreadable, no panel collapses to zero width.
 - Longer content than fits is scrollable, paginated, or visibly clipped with an indicator.
+- A layout that reacts to size needs a `resize()` in the walkthrough: a fresh launch at a small size
+  and a resize *into* that size can take different code paths (one app compacted the panel on launch
+  and overlaid the whole content area when shrunk). Record which path you actually observed.
 
 ### Locale and portability
 - Strings that will be localized assume variable width; layouts that assume ASCII width break.

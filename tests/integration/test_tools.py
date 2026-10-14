@@ -1,6 +1,6 @@
 import asyncio
 
-"""Integration tests for all 12 MCP tools via mcp.call_tool().
+"""Integration tests for the MCP tools via mcp.call_tool().
 
 Each test launches the example TUI app in a real subprocess.
 Marked @pytest.mark.integration to allow exclusion from fast runs.
@@ -589,3 +589,149 @@ choice({
             assert payload["ok"] is False
             assert [d["code"] for d in payload["diagnostics"]] == ["E_INPUT_MODE"]
             assert scenario_sessions == {}
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestVisualAndResize:
+    """screenshot / gif / resize against a real subprocess (the visual witnesses)."""
+
+    @pytest.fixture
+    async def buffer_launched(self):
+        """Launch the example app in buffer mode."""
+        await mcp.call_tool("launch_tui", {"command": EXAMPLE_APP, "mode": "buffer", "dimensions": "80x24"})
+        try:
+            await mcp.call_tool("expect_text", {"pattern": "Welcome"})
+            yield
+        finally:
+            try:
+                await mcp.call_tool("close_session", {})
+            except Exception:
+                pass
+
+    async def test_screenshot_writes_a_png(self, buffer_launched, tmp_path):
+        target = tmp_path / "screen.png"
+        r = await mcp.call_tool("screenshot", {"path": str(target), "font_size": 10})
+        assert "✓ Screenshot saved" in str(r)
+        assert target.read_bytes().startswith(b"\x89PNG")
+
+    async def test_screenshot_rejects_stream_mode(self, tmp_path):
+        await mcp.call_tool("launch_tui", {"command": EXAMPLE_APP, "mode": "stream"})
+        try:
+            with pytest.raises(ToolError):
+                await mcp.call_tool("screenshot", {"path": str(tmp_path / "x.png")})
+        finally:
+            await mcp.call_tool("close_session", {})
+
+    async def test_gif_needs_two_frames(self, tmp_path):
+        first, second = tmp_path / "a.png", tmp_path / "b.png"
+        for target in (first, second):
+            await mcp.call_tool("launch_tui", {"command": EXAMPLE_APP, "mode": "buffer"})
+            await mcp.call_tool("screenshot", {"path": str(target), "font_size": 10})
+            await mcp.call_tool("close_session", {})
+        out = tmp_path / "movie.gif"
+        r = await mcp.call_tool("gif", {"frames": [str(first), str(second)], "path": str(out), "duration_ms": 100})
+        assert "✓ GIF saved" in str(r)
+        assert out.read_bytes().startswith(b"GIF8")
+
+    async def test_resize_grows_the_emulated_screen(self, buffer_launched):
+        r = await mcp.call_tool("resize", {"dimensions": "100x30"})
+        assert "100x30" in str(r)
+        info = await mcp.call_tool("get_session_info", {})
+        assert "100x30" in str(info)
+        # Row 29 only exists after the resize actually reached the emulated screen.
+        line = await mcp.call_tool("get_line", {"row": 29})
+        assert "Line 29" in str(line)
+
+    async def test_resize_rejects_bad_dimensions(self, buffer_launched):
+        with pytest.raises(ToolError):
+            await mcp.call_tool("resize", {"dimensions": "nope"})
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestLivenessAfterExit:
+    """A dead child is reported for buffer reads; a stream read stays a record."""
+
+    async def test_stream_capture_after_exit_returns_output(self):
+        """The stream idiom: run a finite command, then read what it printed."""
+        await mcp.call_tool("launch_tui", {"command": 'sh -c "echo finished-output"', "mode": "stream"})
+        try:
+            # expect_text is the read that fills pexpect's before/after accumulator.
+            await mcp.call_tool("expect_text", {"pattern": "finished-output", "timeout": 10})
+            await asyncio.sleep(1.0)  # let the command exit and be reaped
+            r = await mcp.call_tool("capture_screen", {})
+            assert "finished-output" in str(r)
+        finally:
+            await mcp.call_tool("close_session", {})
+
+    async def test_buffer_capture_after_exit_raises(self):
+        await mcp.call_tool("launch_tui", {"command": 'sh -c "echo bye"', "mode": "buffer"})
+        try:
+            await asyncio.sleep(1.0)
+            with pytest.raises(ToolError):
+                await mcp.call_tool("capture_screen", {})
+        finally:
+            await mcp.call_tool("close_session", {})
+
+    async def test_send_after_exit_raises_in_stream_mode(self):
+        await mcp.call_tool("launch_tui", {"command": 'sh -c "echo bye"', "mode": "stream"})
+        try:
+            await asyncio.sleep(1.0)
+            with pytest.raises(ToolError):
+                await mcp.call_tool("send_keys", {"keys": "x"})
+        finally:
+            await mcp.call_tool("close_session", {})
+
+
+@pytest.mark.integration
+@pytest.mark.asyncio
+class TestColour:
+    """Colour is captured, assertable in text, and painted into the screenshot."""
+
+    COLOUR_APP = "python examples/color_tui_app.py"
+
+    @pytest.fixture
+    async def colour_session(self):
+        await mcp.call_tool("launch_tui", {"command": self.COLOUR_APP, "mode": "buffer", "dimensions": "40x8"})
+        try:
+            await mcp.call_tool("expect_text", {"pattern": "Press Enter to quit"})
+            yield
+        finally:
+            try:
+                await mcp.call_tool("close_session", {})
+            except Exception:
+                pass
+
+    async def test_ansi_and_256_colour_are_readable(self, colour_session):
+        named = str(await mcp.call_tool("get_cell_style", {"row": 1, "col": 0}))
+        assert "fg=red" in named
+        hexed = str(await mcp.call_tool("get_cell_style", {"row": 2, "col": 0}))
+        assert "fg=ff0000" in hexed
+
+    async def test_background_and_attributes_are_readable(self, colour_session):
+        bg = str(await mcp.call_tool("get_cell_style", {"row": 1, "col": 5}))
+        assert "bg=green" in bg
+        underline = str(await mcp.call_tool("get_cell_style", {"row": 4, "col": 3}))
+        assert "underline=yes" in underline
+
+    async def test_screenshot_paints_the_app_colours(self, colour_session, tmp_path):
+        from PIL import Image
+
+        target = tmp_path / "colour.png"
+        result = str(await mcp.call_tool("screenshot", {"path": str(target), "font_size": 16}))
+        assert "cells carry colour" in result
+        colours = {rgb for _, rgb in Image.open(target).convert("RGB").getcolors(maxcolors=1 << 20)}
+        assert (205, 0, 0) in colours  # ANSI red, exactly
+        assert (255, 0, 0) in colours  # 256-colour 196
+        assert (0, 205, 0) in colours  # green background
+
+    async def test_scenario_style_step(self):
+        doc = "launch(\"" + self.COLOUR_APP + "\", mode=\"buffer\", dimensions=\"40x8\")\n" \
+              "expect(\"Press Enter to quit\", timeout=10)\n" \
+              "style(1, 0)\n" \
+              "close()\n"
+        result = await mcp.call_tool("run_scenario", {"ad_hoc": doc, "session_id": "style-step"})
+        payload = result.structured_content
+        assert payload["ok"], payload["results"]
+        assert "fg=red" in payload["results"][2]["output"]

@@ -46,6 +46,10 @@ numbers. While iterating, pass just the block as `run_scenario(ad_hoc=<the pytho
 launch("env TERM=xterm-256color LC_ALL=C <cmd>", mode="buffer", dimensions="120x40", timeout=30)
 expect("<first thing the app paints>", timeout=5)
 # ... one step per expectation, in the order the scenario walks them ...
+shot(path="/tmp/tui/<label>-1.png")     # colour/contrast/focus evidence — quote the path
+resize("80x20")                          # only if the scenario is about a responsive layout
+shot(path="/tmp/tui/<label>-2.png")
+gif(["/tmp/tui/<label>-1.png", "/tmp/tui/<label>-2.png"], path="/tmp/tui/<label>.gif")
 choice({
     "<the outcome the pass expects>": expect("<text that proves it>", timeout=5),
     "<a plausible failure state>": assert_text("<text that reveals it>"),
@@ -101,7 +105,10 @@ Not app findings.>
 - **Expected before observed.** The two tables are never merged into one so a reader can see what was
   predicted versus what happened.
 - **Verdict column, not prose.** `PASS`/`FAIL`/`PARTIAL`/`BLOCKED` keeps a 12-row table scannable.
-- **Evidence cites steps.** `<verbatim output>` (step N) — the transcript holds the full text.
+- **Evidence cites steps.** `<verbatim output>` (step N) — the transcript holds the full text. A
+  colour/contrast/focus remark cites its `shot` path as well.
+- **Images are artifacts, not evidence-free.** A `shot`/`gif` step is recorded in the transcript with
+  its path, so the picture is reproducible from the run.
 - **Polish remarks are about the app.** Table with `Where` = a screen coordinate so the remark can be
   located again in the transcript.
 - **A separate *Corrections* section** keeps honesty compatible with a frozen expectation table.

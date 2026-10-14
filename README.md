@@ -4,6 +4,9 @@
 
 An MCP (Model Context Protocol) server that enables AI assistants to test Terminal User Interface (TUI) applications. This server provides tools to launch, interact with, and verify TUI applications programmatically.
 
+**v1.0.0** — 22 tools; buffer-mode reads are column-exact and fail loudly when the
+child has exited (see the changelog for the 1.0 breaking changes).
+
 📚 **[View Documentation](https://georgepearse.github.io/mcp-tui-test/)**
 
 ## Features
@@ -12,6 +15,10 @@ An MCP (Model Context Protocol) server that enables AI assistants to test Termin
 - **Launch TUI Applications**: Start any terminal-based application with configurable dimensions
 - **Send Keyboard Input**: Simulate user typing, special keys, and control combinations
 - **Capture Screen Output**: Read and analyze the current terminal display
+- **Screenshot & GIF**: Render the screen to a PNG (colour, cursor, emoji) and stitch frames into an animated GIF
+- **Colour assertions**: `get_cell_style` reads per-cell fg/bg and bold/reverse/italic/underline/strike, so colour-only states are assertable in text
+- **Live Resize**: Resize the terminal mid-session to exercise responsive layouts
+- **Dead-child detection**: Buffer-mode reads and every write fail loudly once the child has exited, instead of replaying a frozen frame (stream-mode reads stay, since a finished command's output is a record)
 - **Position-Based Testing**: Verify text at specific screen coordinates (buffer mode)
 - **Cursor Tracking**: Monitor cursor position in real-time (buffer mode)
 - **Wait for Text**: Asynchronously wait for specific content to appear
@@ -140,7 +147,7 @@ Launch a TUI application for testing.
 - `session_id` (optional): Unique identifier for this session (default: "default")
 - `timeout` (optional): Command timeout in seconds (default: 30)
 - `dimensions` (optional): Terminal dimensions as WIDTHxHEIGHT (default: "80x24")
-- `mode` (optional): Testing mode - "stream" or "buffer" (default: "stream")
+- `mode` (optional): Testing mode - "stream" or "buffer" (default: "buffer")
 
 **Examples:**
 ```python
@@ -186,6 +193,65 @@ Capture the current screen output of a TUI application.
 **Examples:**
 ```python
 capture_screen(session_id="test1")
+```
+
+### `get_cell_style` (Buffer Mode Only)
+Read one cell's colour and text attributes — the text-form witness of a colour-only state
+(a red failure marker, a dimmed row, a selection highlight).
+
+**Parameters:**
+- `row` (required): 0-indexed row number
+- `col` (required): 0-indexed column number
+- `session_id` (optional): Session identifier (default: "default")
+
+**Example:**
+```python
+get_cell_style(row=4, col=2)   # -> char='X' fg=red bg=default bold=no reverse=no ...
+```
+
+### `screenshot` (Buffer Mode Only)
+Render the current screen to a PNG — the only witness of colour, contrast, a colour-only state
+(a dimmed row, a selection highlight) and the cursor (focus). The picture is drawn from the same
+pyte cell grid the text tools read, with a per-glyph font fallback (a Nerd Font first) so emoji and
+status symbols render instead of `.notdef` boxes.
+
+**Parameters:**
+- `path` (optional): Where to write the PNG (default: a timestamped file under the system temp dir)
+- `session_id` (optional): Session identifier (default: "default")
+- `font_size` (optional): Font size in points, 4-96 (default: 14)
+- `cursor` (optional): Paint the cursor as an inverted block (default: True)
+
+**Example:**
+```python
+screenshot(path="/tmp/state-after-import.png")
+```
+
+### `gif`
+Stitch PNGs from `screenshot` into an animated GIF (a "movie" of a session).
+
+**Parameters:**
+- `frames` (required): Two or more PNG paths, in play order
+- `path` (optional): Where to write the GIF (default: a timestamped temp file)
+- `duration_ms` (optional): Milliseconds each frame is shown (default: 500)
+- `loop` (optional): 0 loops forever, N plays N+1 times (default: 0)
+
+**Example:**
+```python
+gif(frames=["/tmp/1.png", "/tmp/2.png", "/tmp/3.png"], path="/tmp/movie.gif")
+```
+
+### `resize`
+Resize a live session's terminal (the pty, so the child gets SIGWINCH) and let the app re-layout —
+the only way to drive a responsive layout in a headless run.
+
+**Parameters:**
+- `dimensions` (required): New size as WIDTHxHEIGHT, e.g. "80x20"
+- `session_id` (optional): Session identifier (default: "default")
+- `delay` (optional): Seconds to wait for the repaint (default: 0.3)
+
+**Example:**
+```python
+resize(dimensions="80x20")
 ```
 
 ### `expect_text`

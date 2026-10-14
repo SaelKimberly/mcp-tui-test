@@ -70,7 +70,7 @@ rather than writing it as a side effect of a walkthrough.
 - Sanity call: `mcp__tui_test_launch_tui` with
   `command="env TERM=xterm-256color LC_ALL=C <app>"`, then `mcp__tui_test_capture_screen`.
 - Without omp, handshake the config directly (this is how the shipped `.omp/mcp.json` was verified:
-  17 tools listed, launch/close round-trip):
+  22 tools listed, launch/close round-trip):
 
 ```bash
 uv run --project /abs/path/to/mcp-tui-test python - <<'PY'

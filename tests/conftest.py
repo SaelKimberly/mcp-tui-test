@@ -13,20 +13,30 @@ class DummyProcess:
     lifecycle without the read_nonblocking ↔ expect data race.
     """
 
-    def __init__(self, before: str = "", after: str = ""):
+    def __init__(self, before: str = "", after: str = "", alive: bool = True):
         self.before = before
         self.after = after
         self.sent: list[str] = []
         self._closed = False
         self._timeout = 30
+        self.alive = alive
+        self.exitstatus: int | None = None
+        self.signalstatus: int | None = None
+        self.winsize: tuple[int, int] = (24, 80)
 
     def send(self, keys: str) -> None:
         self.sent.append(keys)
 
     def read_nonblocking(self, size: int = 4096, timeout: float = 0.1) -> str:
-        if self._closed:
+        if self._closed or not self.alive:
             raise pexpect.EOF("Process closed")
         return ""
+
+    def isalive(self) -> bool:
+        return self.alive and not self._closed
+
+    def setwinsize(self, rows: int, cols: int) -> None:
+        self.winsize = (rows, cols)
 
     def expect(self, patterns, timeout: int = -1) -> int:
         full = (self.before or "") + (self.after or "")

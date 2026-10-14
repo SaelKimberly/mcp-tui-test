@@ -442,3 +442,67 @@ assert_contains(text="Main Menu", session_id="nav")
 
 close_session(session_id="nav")
 ```
+
+### Example 14: Capturing the Screen as an Image (Buffer Mode)
+
+Text reads describe what the screen says; a screenshot is the only witness of what it *looks* like —
+colour, contrast, a dimmed/disabled row, a selection highlight, and where the cursor is (focus).
+
+```python
+launch_tui(command="my-tui-app", mode="buffer", dimensions="120x40")
+expect_text(pattern="Ready", timeout=5)
+
+# 1. A state you want to look at: take one PNG per state, with an explicit path.
+screenshot(path="/tmp/tui/01-main.png")
+send_keys(keys="s")
+wait_for_stable()
+screenshot(path="/tmp/tui/02-settings.png")
+
+# 2. A transition over time becomes an animation.
+gif(frames=["/tmp/tui/01-main.png", "/tmp/tui/02-settings.png"],
+    path="/tmp/tui/session.gif", duration_ms=600)
+
+close_session()
+```
+
+Notes:
+- Buffer mode only — a stream-mode session has no cell grid, and `screenshot` raises `ToolError` if
+  you ask anyway.
+- The renderer falls back per glyph (a Nerd Font first), so emoji flags and status symbols are drawn
+  rather than replaced by `.notdef` boxes. Point `MCP_TUI_TEST_FONT` at a font if a glyph is missing.
+- A GIF needs frames that actually differ: Pillow drops a frame identical to the previous one.
+
+### Example 15: Asserting Colour and Attributes (Buffer Mode)
+
+A colour-only state (a red failure marker, a dimmed/disabled row, a highlight) is not expressible as
+a text assertion. `get_cell_style` reads the cell's colour and attributes so the claim is assertable;
+`screenshot` is what shows whether the contrast is actually usable.
+
+```python
+# examples/color_tui_app.py paints one fixed, known cell per row.
+launch_tui(command="python examples/color_tui_app.py", mode="buffer", dimensions="40x8")
+expect_text(pattern="Press Enter to quit", timeout=5)
+
+get_cell_style(row=1, col=0)   # ANSI red:   fg=red
+get_cell_style(row=2, col=0)   # 256-colour: fg=ff0000
+get_cell_style(row=3, col=0)   # truecolour: fg=0ac81e
+get_cell_style(row=4, col=3)   # underline=yes
+
+# The picture proves the colour actually reaches the pixels (and the contrast is readable).
+screenshot(path="/tmp/tui/colour.png", font_size=16)
+
+close_session()
+```
+
+In a scenario the same read is the `style` step:
+
+```python
+style(1, 0)                      # row 1, col 0 -> "char='A' fg=red ..."
+```
+
+Notes:
+- Colours are pyte's encoding: a 16-colour name (`red`), a 6-digit hex string for 256-colour or
+  true-colour (`ff0000`), or `default` when the app set none.
+- A `screenshot` returns a palette note — `N cells carry colour`, or `no colour` when the app emits
+  none, so a monochrome picture is never mistaken for a lost palette.
+- Canvas colours follow `MCP_TUI_TEST_FG` / `MCP_TUI_TEST_BG` for light-theme terminals.

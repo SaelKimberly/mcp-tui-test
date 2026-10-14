@@ -17,6 +17,32 @@ def strip_ansi(text: str) -> str:
     return ANSI_ESCAPE.sub("", text)
 
 
+def screen_lines(screen) -> list[str]:
+    """Render a pyte screen to text, one string per row, one character per column.
+
+    pyte's own ``Screen.display`` crashes with ``IndexError`` when a stale stub
+    cell (``data == ""``, the placeholder for the second half of a wide glyph)
+    survives a redraw — exactly what a TUI that draws emoji or CJK flags and
+    then repaints over them leaves behind. Every cell is emitted here instead
+    (an empty cell becomes a space), so a malformed stub can never break a read
+    and the string index of a cell is always its column: a wide glyph occupies
+    its own cell plus one filler space, and every glyph to its right keeps the
+    column the terminal actually used.
+
+    Args:
+        screen: pyte.Screen instance
+
+    Returns:
+        One string per screen row, each exactly ``screen.columns`` characters.
+
+    """
+    buffer = screen.buffer
+    return [
+        "".join(buffer[y][x].data or " " for x in range(screen.columns))
+        for y in range(screen.lines)
+    ]
+
+
 def drain_buffer(process, screen, stream, max_passes: int = 3, max_reads: int = 100) -> None:
     """Drain all available process output into a pyte screen buffer.
 

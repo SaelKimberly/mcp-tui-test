@@ -1,5 +1,8 @@
 """Unit tests for ScreenSession (DummyProcess, no real subprocesses)."""
 
+import pytest
+from fastmcp.exceptions import ToolError
+
 from mcp_tui_test._server import CursorPosition, ScreenModel, ScreenSession
 from tests.conftest import DummyProcess
 
@@ -100,6 +103,84 @@ class TestClose:
         session.close()
         session.close()  # Should not raise
         assert session.process._closed is True
+
+
+class TestLiveness:
+    """A dead child must fail loudly where a stale state would be believed."""
+
+    def test_buffer_capture_raises_after_exit(self):
+        proc = DummyProcess(alive=False)
+        session = ScreenSession(process=proc, dimensions=(80, 24), mode="buffer", session_id="dead")
+        with pytest.raises(ToolError, match="dead"):
+            session.capture()
+
+    def test_stream_capture_still_returns_recorded_output(self):
+        """A finished CLI command's output is a record, not a stale live frame."""
+        proc = DummyProcess(alive=False, before="git status output\n")
+        session = ScreenSession(process=proc, dimensions=(80, 24), mode="stream")
+        model = session.capture()
+        assert "git status output" in model.text
+
+    def test_send_raises_after_exit_in_both_modes(self):
+        for mode in ("stream", "buffer"):
+            proc = DummyProcess(alive=False)
+            session = ScreenSession(process=proc, dimensions=(80, 24), mode=mode)
+            with pytest.raises(ToolError):
+                session.send("q")
+            assert proc.sent == []
+
+    def test_exit_status_is_reported(self):
+        proc = DummyProcess(alive=False)
+        proc.exitstatus = 3
+        session = ScreenSession(process=proc, dimensions=(80, 24), mode="buffer")
+        with pytest.raises(ToolError, match="status 3"):
+            session.assert_alive()
+
+    def test_live_process_passes(self, session):
+        session.assert_alive()  # must not raise
+
+    def test_duck_typed_process_without_isalive_passes(self):
+        class Bare:
+            def send(self, keys):
+                pass
+
+        session = ScreenSession(process=Bare(), dimensions=(80, 24), mode="stream")
+        session.assert_alive()  # no isalive attribute -> treated as alive
+
+
+class TestResize:
+    def test_resize_sets_winsize_and_screen(self):
+        proc = DummyProcess()
+        session = ScreenSession(process=proc, dimensions=(80, 24), mode="buffer")
+        session.resize(100, 30, delay=0)
+        assert proc.winsize == (30, 100)
+        assert session.dimensions == (100, 30)
+        assert session.screen.columns == 100
+        assert session.screen.lines == 30
+
+    def test_resize_stream_sets_winsize_only(self):
+        proc = DummyProcess()
+        session = ScreenSession(process=proc, dimensions=(80, 24), mode="stream")
+        session.resize(40, 12, delay=0)
+        assert proc.winsize == (12, 40)
+        assert session.dimensions == (40, 12)
+
+
+class TestWideCharCapture:
+    def test_capture_survives_wide_char_redraw(self):
+        """pyte's display raises IndexError on this buffer; capture must not."""
+        session = ScreenSession(process=DummyProcess(), dimensions=(12, 2), mode="buffer")
+        session.stream.feed("\U0001F3F4")
+        session.stream.feed("\x1b[1;1Hx")
+        model = session.capture()
+        assert model.lines[0].startswith("x")
+
+    def test_capture_rows_are_column_exact(self):
+        session = ScreenSession(process=DummyProcess(), dimensions=(10, 2), mode="buffer")
+        session.stream.feed("a\U0001F3F4b")
+        model = session.capture(preserve_format=True)
+        assert model.lines[0] == "a\U0001F3F4 b      "
+        assert len(model.lines[0]) == 10
 
 
 class TestSpecialKeysMapping:

@@ -6,9 +6,20 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
-## [Unreleased]
+## [1.0.0] - 2026-10-14
 
 ### Added
+- **`get_cell_style` tool + `style` step**: per-cell fg/bg (16-colour name, 6-hex for 256/true colour,
+  or `default`) and bold/reverse/italic/underline/strike/blink — the text-form witness that makes a
+  colour-only state assertable in a scenario instead of only visible in a screenshot.
+- **Full attribute rendering**: the PNG now honours italic, underline and strikethrough (bold and
+  reverse were already drawn) and paints colour emoji from the colour-emoji font (rendered once at
+  its 109px bitmap strike and scaled into the cell) when one is installed.
+- **Configurable canvas colours**: `MCP_TUI_TEST_FG` / `MCP_TUI_TEST_BG` set the default fg/bg, so a
+  light-theme terminal does not get a black-canvas screenshot.
+- **Colour fixture**: `examples/color_tui_app.py` — a static screen with ANSI, 256-colour,
+  true-colour, background, bold, underline, strike, italic and reverse cells, used by the integration
+  colour tests.
 - **`run_scenario` tool**: lint and run a TUI scenario written as bare step calls (`launch`, `send`,
   `expect`, `assert_text`, `line`, …). Parsed with `ast` and never executed — every argument must be
   a literal, so the linted pipeline is exactly what runs. Returns a rendered report plus structured
@@ -26,7 +37,57 @@ and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0
   expectations-first walkthrough, a visual polish rubric, a findings review, `docs/guides/tui/INDEX.md`),
   plus a project-scoped `.omp/mcp.json` mount for oh-my-pi sessions.
 
+- **`screenshot` tool**: render the current buffer-mode screen to a PNG from the same pyte cell grid
+  the text tools read — colour, bold, reverse video, the cursor as an inverted block, and a per-glyph
+  font fallback (a Nerd Font is preferred; `MCP_TUI_TEST_FONT` overrides it) so emoji and status
+  symbols are drawn instead of `.notdef` boxes. This is the only witness of colour, contrast and focus.
+- **Palette note on `screenshot`**: the result states how many cells carry colour, or that the app
+  emits none — so a monochrome picture cannot be mistaken for a renderer dropping colour.
+- **`gif` tool**: stitch `screenshot` PNGs into an animated GIF (frames resized onto the first frame's
+  canvas). Takes no `session_id`.
+- **`resize` tool**: resize a live session's pty (SIGWINCH reaches the child) *and* the emulated screen,
+  so a responsive layout can be driven mid-session — including the branch a shrink reaches that a fresh
+  small launch does not.
+- **Scenario steps** `shot` → `screenshot`, `gif` → `gif`, `resize` → `resize`, with argument
+  validation, a `W_STREAM_MODE_READ` warning for `shot` on a stream session, and `gif` exempt from
+  session-id injection.
+- **Pillow dependency** for raster rendering; it is imported lazily, so the text tools keep working
+  (and the visual tools raise a `ToolError` naming the install) when it is absent.
+- **Skill**: `references/tools.md` documents the three new tools and the corrected liveness behaviour;
+  the gotcha table, polish rubric and scenario template now say when a screenshot is required evidence.
+
+### Changed
+- **BREAKING: a dead child is reported instead of silently replayed.** On a buffer-mode session, reads
+  (`capture_screen`, `get_line`, `get_screen_region`, `get_char`, `get_cell_style`, `get_cursor_position`,
+  `expect_text`, `screenshot`) and every write (`send_keys`, `send_special_keys`, `send_ctrl`, `resize`)
+  raise `ToolError` naming the exit status once the process has exited; previously they answered `✓`
+  from the last frame, so a walkthrough could pass against a dead app. Stream-mode reads are exempt —
+  a finished command's accumulated output is still returned.
+- **BREAKING: buffer rows are column-exact.** `capture_screen` / `get_line` / `get_screen_region` /
+  `get_char` render one character per cell (a wide glyph plus a filler space), so a cell's index is its
+  column. Text reads of emoji rows therefore contain one space more than before, and comparisons built
+  against the old pyte `display` shape will differ.
+- **BREAKING: `run_scenario` argument checking tightened.** A positional list literal (`key(["up",
+  "down"])`, `gif([...])`) is now accepted where it was previously rejected as a type error.
+- **`launch_tui` `mode` default is `buffer`**; the README previously documented `stream`.
+
 ### Fixed
+- **Positional list literals for variadic steps**: `key(["up", "down"])` and `gif(["/a.png", "/b.png"])`
+  were rejected with `E_ARG_TYPE` while the keyword form accepted the same list; both spellings now
+  resolve to one step.
+- **pyte `Screen.display` crash on emoji/TUI screens**: a stale wide-character stub cell (an emoji flag
+  drawn, then repainted over) made pyte's own renderer raise `IndexError: string index out of range`,
+  killing reads at random. All reads now go through `screen_lines()`, which renders the cell grid
+  directly and cannot crash on a stub.
+- **Wide-character column drift**: rendered rows are now exactly `columns` characters — a wide glyph
+  occupies its own column and a filler space the next — so `get_char`, `assert_at_position` and region
+  slices are column-exact right of an emoji, which they were not before.
+- **Dead children no longer impersonate a live session**: on a buffer-mode session, `capture_screen`,
+  the line/region/cursor reads, `expect_text` and `screenshot` raise a `ToolError` naming the exit
+  status once the child has exited, instead of replaying the frame it died on and answering `✓`.
+  Writes (`send_keys`, `send_special_keys`, `send_ctrl`, `resize`) raise in both modes. Stream-mode
+  reads are deliberately exempt: a finished command's accumulated output is a record, and reading it
+  is the reason stream mode exists.
 - **`launch_tui` terminal size**: out-of-range `dimensions` are rejected with a clear error instead of
   failing deep inside pexpect, which could block the call for tens of seconds.
 - **Session cleanup**: a failed `launch` step no longer closes an attached session it did not create,

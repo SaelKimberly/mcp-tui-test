@@ -8,13 +8,14 @@ description: Use when a task involves driving, demoing, walking through, or revi
 ## Overview
 
 The `tui-test` MCP server launches a TUI in a subprocess and exposes its rendered screen as
-readable, assertable text. A walkthrough is only worth anything if a reader can tell the
-*observed* screen apart from the *expected* one, so this skill fixes two things: the artifact
-structure, and the rule that the screen buffer is the only witness.
+readable, assertable text — and, for anything the text cannot carry, as a PNG of the same cells. A
+walkthrough is only worth anything if a reader can tell the *observed* screen apart from the
+*expected* one, so this skill fixes two things: the artifact structure, and the rule that every
+observation comes from a tool result.
 
-**Iron rule:** every observation in the scenario document is copied verbatim from a tool result.
-Anything you reason to but did not see is marked `[inference]`. A fabricated screen excerpt
-invalidates the whole review.
+**Iron rule:** every observation in the scenario document is copied verbatim from a tool result (a
+text read, or a screenshot you quote the path of). Anything you reason to but did not see is marked
+`[inference]`. A fabricated screen excerpt invalidates the whole review.
 
 ## When to use
 
@@ -64,6 +65,9 @@ Not for web UIs (use the browser tool) or for unit-testing non-TUI code.
    trace of what it corrected is indistinguishable from a script that was never wrong.
 6. **Polish remarks.** Only about the app under test (`references/polish-rubric.md`). Harness
    problems belong in *Tooling friction* — mixing them makes an app review that a UI owner cannot act on.
+   Any remark about colour, contrast, a colour-only state or focus needs a `shot(path=…)` beside it:
+   text reads cannot witness those, and a screenshot's path is a citable observation. Use
+   `gif(frames=[…])` when the finding is about a transition over time.
 7. **Teardown.** `close_session` for every session, then verify: `list_sessions` → `No active
    sessions`, `pgrep -a <app>` → nothing, rescue/temp files removed (`run_scenario` reports any `*.save`
    written during the run in `rescue_files` and in its report).
@@ -175,10 +179,13 @@ Rules the linter enforces, so a mistake costs one call instead of a botched run:
   `assert_at`→`assert_at_position`, `line`→`get_line`, `region`→`get_screen_region`,
   `char`→`get_char`, `cursor`→`get_cursor_position`, `capture`→`capture_screen`,
   `stable`→`wait_for_stable`, `change`→`wait_for_change`, `info`→`get_session_info`,
-  `sessions`→`list_sessions`, `close`→`close_session`.
+  `sessions`→`list_sessions`, `shot`→`screenshot`, `gif`→`gif`, `resize`→`resize`,
+  `style`→`get_cell_style`, `close`→`close_session`.
 - **Arguments are checked against the tool signatures** — unknown names, missing required arguments,
   wrong types, duplicates and bad regexes are errors; the hints name the valid vocabulary
-  (`references/tools.md` has the full table).
+  (`references/tools.md` has the full table). A variadic step (`key`, `gif`) takes either repeated
+  positionals or one list literal — `key("up", "down")`, `key(["up", "down"])` and
+  `key(keys=["up", "down"])` are the same step.
 - **`session_id` is not a script argument.** `run_scenario` applies it to every step; passing one
   inside the script is an error.
 - Warnings do not block a run: `\n` in `send` after a buffer launch, buffer-only reads on a
@@ -213,7 +220,12 @@ should converge on, so a reviewed scenario and the executed one cannot drift apa
 | `capture_screen` is missing rows or box-drawing characters | pyte tracks cell diffs imperfectly for full-screen apps | Read with `get_line`, `get_screen_region`, `get_char` |
 | `wait_for_change` says "changed" immediately | Its `reference` wants bare buffer text, but `capture_screen` wraps the buffer in a header and a 60-char `=` rule | Slice the wrapper off before reusing a capture as a reference |
 | `send_keys "q\r"` does nothing | Raw-mode apps (ratatui/crossterm) want `\r`, not `\n`, for Enter | Send `\r`, or `send_special_keys keys=enter` |
-| After the app exits, tools still answer `✓` and replay the last frame | No liveness check anywhere in the server | Confirm exit outside the harness (`pgrep -a <app>`, file mtime/content); always `close_session` |
+| A buffer read or any key raises `ToolError: Session '…' exited with status N` | The child died (crash, or the app quit itself) and the throw is deliberate — a dead TUI's last frame used to be replayed as if live | Capture the frame *before* the keystroke that quits; otherwise read the app's own log and relaunch. Stream-mode reads are exempt: a finished command's output is still returned |
+| A colour/contrast/focus claim cannot be checked | Text reads carry no colour and show no cursor | `style(row, col)` for an assertable fg/bg/attribute read, `shot(path=…)` to look at it; `gif(frames=[…])` for a state transition over time |
+| A colour-only state must be pinned in a scenario | Assertions on text cannot express "this row is red" | `style(row, col)` returns `fg=…`/`bg=…`/attributes; a screenshot reports how many cells carry colour (or that the app sends none) |
+| A layout that reacts to size is unreachable in a headless run | `dimensions` applies at launch only | `resize("80x20")` mid-session: it delivers SIGWINCH, which is what a responsive layout actually listens to |
+| Screenshot shows `.notdef` boxes for a status symbol | No font in the chain covers that glyph | The renderer falls back per glyph (Nerd Font first); point `MCP_TUI_TEST_FONT` at a font that has it |
+| A `gif` frame count comes out lower than the frames passed | Pillow drops a frame identical to the previous one | Expected for a static screen; capture frames that actually differ |
 | Rescue files (`<fixture>.save`) appear after teardown | `close_session` SIGHUPs the child while the buffer is still modified, so editors write a rescue copy | Write the buffer in-app (Ctrl+O, Enter) before `close_session`; `run_scenario` reports the `*.save` files written during the run (it watches an attached session's own command too), and you delete them during teardown |
 | Assertions flake right after a keystroke | Repaint timing | `expect_text` / `wait_for_stable` before reading; `delay` ≥ 0.3 |
 | A read right after `send` shows stale text in stream mode | Stream mode's pexpect accumulator only advances on `expect()` | Read through an `expect()` before asserting, or use buffer mode |
@@ -238,7 +250,7 @@ should converge on, so a reviewed scenario and the executed one cannot drift apa
 
 ## Files
 
-- `references/tools.md` — all 18 tools (including `run_scenario`): arguments, return shape, mode
+- `references/tools.md` — all 22 tools (including `run_scenario`): arguments, return shape, mode
   support, quirks.
 - `references/scenario-template.md` — copy-paste skeleton of the scenario document.
 - `references/polish-rubric.md` — what "polish" means for a TUI, with severity guidance.

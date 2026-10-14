@@ -6,11 +6,59 @@ from mcp_tui_test._screen import (
     drain_buffer,
     poll_until_changed,
     poll_until_stable,
+    screen_lines,
     screen_text_changed,
     strip_ansi,
 )
 from mcp_tui_test._server import ScreenSession
 from tests.conftest import DummyProcess
+
+
+def _screen_with(columns: int = 12, lines: int = 2):
+    """A pyte screen fed with raw escape output."""
+    import pyte
+
+    screen = pyte.Screen(columns, lines)
+    stream = pyte.Stream(screen)
+    return screen, stream
+
+
+class TestScreenLines:
+    def test_plain_text_per_row(self):
+        screen, stream = _screen_with()
+        stream.feed("hello\r\nworld")
+        lines = screen_lines(screen)
+        assert lines[0] == "hello       "
+        assert lines[1] == "world       "
+
+    def test_every_row_is_exactly_columns_wide(self):
+        screen, stream = _screen_with(columns=20)
+        stream.feed("ab\U0001F3F4cd")
+        assert all(len(line) == 20 for line in screen_lines(screen))
+
+    def test_wide_glyph_keeps_following_columns(self):
+        """A wide glyph occupies its own column plus a filler space, so a cell's
+        string index is the column the terminal used."""
+        screen, stream = _screen_with(columns=12)
+        stream.feed("a\U0001F3F4b")
+        line = screen_lines(screen)[0]
+        assert line[0] == "a"
+        assert line[1] == "\U0001F3F4"
+        assert line[2] == " "
+        assert line[3] == "b"
+
+    def test_stale_wide_stub_does_not_crash(self):
+        """pyte's own Screen.display raises IndexError here; screen_lines must not."""
+        import pyte
+
+        screen, stream = _screen_with(columns=12)
+        stream.feed("\U0001F3F4")  # wide glyph leaves a stub cell at column 1
+        stream.feed("\x1b[1;1Hx")  # overwrite column 0 with a narrow glyph
+        with pytest.raises(IndexError):
+            pyte.Screen.display.fget(screen)  # type: ignore[attr-defined]
+        line = screen_lines(screen)[0]
+        assert line[0] == "x"
+        assert len(line) == 12
 
 
 class TestStripAnsi:
