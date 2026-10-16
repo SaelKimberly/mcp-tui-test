@@ -356,8 +356,14 @@ def launch_tui(
 
     sessions[session_id] = session
 
-    # Give it a moment to initialize
-    time.sleep(0.5)
+    # Settle the app and keep its terminal queries answered while it settles: a
+    # crossterm app blocks on the `ESC[6n` reply and gives up if the next tool call
+    # does not arrive in time (`xrat tui` exits ~2 s after launch with
+    # `error: application I/O failed` when nothing drains the pty meanwhile).
+    deadline = time.monotonic() + 1.0
+    while time.monotonic() < deadline:
+        session._update_buffer()
+        time.sleep(0.05)
 
     return f"✓ Launched TUI application (session: {session_id})\nCommand: {command}\nDimensions: {width}x{height}\nMode: {mode}"
 
