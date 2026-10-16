@@ -109,7 +109,12 @@ class ScreenSession:
         if mode == "buffer":
             self.screen = pyte.Screen(width, height)
             self.stream = pyte.Stream(self.screen)
-            # Start background task to feed output to pyte
+            # A real terminal answers what the app asks it (`ESC[6n` cursor position,
+            # `ESC[c` device attributes) on the app's stdin. pyte already computes those
+            # replies and hands them to `write_process_input`; without a sink the reply
+            # is dropped and the app blocks on its own query until it reports an I/O error
+            # and exits (crossterm-based apps like `xrat tui` die with "application I/O failed").
+            self.screen.write_process_input = self.process.send
 
     def _update_buffer(self):
         """Drain all available process output into pyte screen buffer.

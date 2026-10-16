@@ -183,6 +183,32 @@ class TestWideCharCapture:
         assert len(model.lines[0]) == 10
 
 
+class TestTerminalQueries:
+    """A buffer-mode session must answer what the app asks the terminal.
+
+    An app that queries cursor position (`ESC[6n`) blocks on the reply and, unanswered,
+    exits with an I/O error. pyte computes the reply; the session owns the child's stdin.
+    """
+
+    def test_cursor_position_query_is_answered(self):
+        proc = DummyProcess()
+        session = ScreenSession(process=proc, dimensions=(80, 24), mode="buffer")
+        session.stream.feed("\x1b[3;5Hx")
+        session.stream.feed("\x1b[6n")
+        assert proc.sent == ["\x1b[3;6R"]
+
+    def test_device_attributes_query_is_answered(self):
+        proc = DummyProcess()
+        session = ScreenSession(process=proc, dimensions=(80, 24), mode="buffer")
+        session.stream.feed("\x1b[c")
+        assert proc.sent and proc.sent[0].endswith("c")
+
+    def test_no_reply_without_a_query(self):
+        proc = DummyProcess()
+        session = ScreenSession(process=proc, dimensions=(80, 24), mode="buffer")
+        session.stream.feed("plain output")
+        assert proc.sent == []
+
 class TestSpecialKeysMapping:
     """Verify SPECIAL_KEYS dictionary integrity."""
 

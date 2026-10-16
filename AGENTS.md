@@ -56,6 +56,7 @@ Agent → FastMCP → @mcp.tool → require_session() → ScreenSession → Scre
 - Pillow is imported lazily: the text tools keep working without it, and the visual tools raise a `ToolError` that names the install
 
 **Buffer drain:** `_update_buffer()` delegates to `drain_buffer()` in `_screen.py` — 3 drain passes (timeout=0, 0.1s gap, max 100 reads per pass) via `process.read_nonblocking()`. Falls back to raw pexpect buffer (ANSI-stripped via `strip_ansi`) in `expect_text` if pyte doesn't track the pattern.
+**Terminal queries:** a buffer-mode session binds `screen.write_process_input = process.send`, so pyte's replies to what the app asks the terminal (`ESC[6n` cursor position, `ESC[c` device attributes) reach the child's stdin. Unanswered, a crossterm-based app blocks on its own query and exits (`xrat tui` died with `error: application I/O failed`).
 
 ## Key Directories
 
