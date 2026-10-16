@@ -4,7 +4,7 @@
 
 `mcp-tui-test` is a Python MCP (Model Context Protocol) server for testing Terminal User Interface applications programmatically. "Like Playwright, but for TUIs." It launches a TUI app in a subprocess, feeds input, captures screen output — all via 22 MCP tools callable by AI agents. Supports two modes: **stream** (pexpect, for CLI tools) and **buffer** (pyte terminal emulation, for full TUIs with position-aware assertions). Buffer mode can also render the screen to a PNG (and stitch frames into a GIF), which is the only way to witness colour, contrast and focus.
 
-Version 1.0.0 (see `CHANGELOG.md` for the breaking changes that motivated the major bump). MIT license. Four-module core (~3,380 lines: `_server`, `_scenario`, `_render`, `_screen`).
+Version 1.1.0 (see `CHANGELOG.md` for the breaking changes that motivated the major bump). MIT license. Four-module core (~3,380 lines: `_server`, `_scenario`, `_render`, `_screen`).
 
 ## Architecture & Data Flow
 ```
