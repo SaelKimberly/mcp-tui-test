@@ -4,7 +4,7 @@
 
 An MCP (Model Context Protocol) server that enables AI assistants to test Terminal User Interface (TUI) applications. This server provides tools to launch, interact with, and verify TUI applications programmatically.
 
-**v1.0.0** — 22 tools; buffer-mode reads are column-exact and fail loudly when the
+**v1.1.0** — 22 tools; buffer-mode reads are column-exact and fail loudly when the
 child has exited (see the changelog for the 1.0 breaking changes).
 
 **[View on GitHub](https://github.com/GeorgePearse/mcp-tui-test)** | **[See Examples](examples.md)**

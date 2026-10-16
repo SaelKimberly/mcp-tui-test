@@ -6,6 +6,18 @@ The format is based on [Keep a Changelog](https://keepachangelog.com/en/1.0.0/),
 and this project adheres to [Semantic Versioning](https://semver.org/spec/v2.0.0.html).
 
 
+## [1.1.0] - 2026-10-16
+
+### Fixed
+- **Terminal queries are answered**: a buffer-mode session bound `screen.write_process_input` to the
+  library's no-op default, so the replies to what an app asks the terminal (`ESC[6n` cursor position,
+  `ESC[c` device attributes) were dropped. A crossterm-based app blocks on that reply and, unanswered,
+  exits before drawing — `xrat tui` died with `error: application I/O failed`.
+- **Queries are answered in time**: `launch_tui` settled with a bare `time.sleep(0.5)` and never
+  drained, so the reply went out only when the *next* tool call arrived. Past an app's ~2 s wait
+  (again `xrat tui`) the child was already gone. The settle window now drains the buffer.
+
+
 ## [1.0.1] - 2026-10-14
 
 ### Fixed
